@@ -53,6 +53,16 @@ const PACKS = {
   pack_5999: { coins: 5999, amount: "59.99" },
 };
 
+const CHAPTER_PRICES = {
+  4: 449,
+  5: 508,
+  6: 563,
+  7: 508,
+  8: 521,
+  9: 540,
+  10: 563,
+};
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value || ""
@@ -387,14 +397,14 @@ app.post("/api/paypal/capture-order", async (req, res) => {
  */
 app.post("/api/unlock-chapter", async (req, res) => {
   try {
-    const { userId, chapterNumber, price } = req.body || {};
+    const { userId, chapterNumber } = req.body || {};
 
     if (!isUuid(userId)) {
       return res.status(400).json({ error: "Invalid userId" });
     }
 
-    if (!chapterNumber || !price) {
-      return res.status(400).json({ error: "Missing chapterNumber or price" });
+    if (!chapterNumber) {
+      return res.status(400).json({ error: "Missing chapterNumber" });
     }
 
     const { data: user, error: userError } = await supabase
@@ -408,7 +418,12 @@ app.post("/api/unlock-chapter", async (req, res) => {
     }
 
     const currentCoins = Number(user.coins || 0);
-    const unlockPrice = Number(price);
+    const unlockPrice = CHAPTER_PRICES[Number(chapterNumber)];
+
+    if (!unlockPrice) {
+      return res.status(400).json({ error: "Invalid chapterNumber" });
+    }
+    
     const unlocked = normalizeUnlocked(user.unlocked);
 
     if (unlocked.includes(chapterNumber)) {
