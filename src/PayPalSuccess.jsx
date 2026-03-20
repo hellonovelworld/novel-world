@@ -48,7 +48,11 @@ function PayPalSuccess() {
 
         localStorage.removeItem("pendingPack");
 
-        setMessage(`${pendingPack.coins} coins added successfully! Redirecting...`);
+        if (result.alreadyProcessed) {
+          setMessage("Payment already processed. Redirecting...");
+        } else {
+          setMessage(`${pendingPack.coins} coins added successfully! Redirecting...`);
+        }
 
         setTimeout(() => {
           const lastChapter = localStorage.getItem("lastChapter");
