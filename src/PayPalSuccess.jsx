@@ -55,7 +55,13 @@ function PayPalSuccess() {
         setMessage(`${pendingPack.coins} coins added successfully! Redirecting...`);
 
         setTimeout(() => {
-          navigate("/novel");
+          const lastChapter = localStorage.getItem("lastChapter");
+
+          if (lastChapter) {
+            navigate(`/chapter/${lastChapter}`);
+          } else {
+            navigate("/novel");
+          }
         }, 1800);
       } catch (error) {
         console.error("PayPal success error:", error);
