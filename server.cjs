@@ -154,6 +154,7 @@ app.post("/api/user/init", async (req, res) => {
         id: user.id,
         coins: Number(user.coins || 0),
         vip_expiry: user.vip_expiry,
+        unlocked: Array.isArray(user.unlocked) ? user.unlocked : [],
       },
     });
   } catch (error) {
@@ -186,6 +187,7 @@ app.post("/api/user/data", async (req, res) => {
         id: user.id,
         coins: Number(user.coins || 0),
         vip_expiry: user.vip_expiry,
+        unlocked: Array.isArray(user.unlocked) ? user.unlocked : [],
       },
     });
   } catch (error) {
