@@ -32,8 +32,8 @@ function PayPalSuccess() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
+              userId: localStorage.getItem("userId"),
               orderID,
-              packCoins: pendingPack.coins,
             }),
           }
         );
@@ -46,16 +46,13 @@ function PayPalSuccess() {
           return;
         }
 
-        const currentCoins = Number(localStorage.getItem("coins") || 0);
-        const updatedCoins = currentCoins + Number(result.addCoins || pendingPack.coins);
-
-        localStorage.setItem("coins", String(updatedCoins));
         localStorage.removeItem("pendingPack");
 
         setMessage(`${pendingPack.coins} coins added successfully! Redirecting...`);
 
         setTimeout(() => {
           const lastChapter = localStorage.getItem("lastChapter");
+          localStorage.removeItem("lastChapter");
 
           if (lastChapter) {
             navigate(`/chapter/${lastChapter}`);
