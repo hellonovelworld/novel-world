@@ -20,6 +20,7 @@ function Chapter() {
 
   const packs = [
     {
+      key: "pack_1998",
       coins: 1998,
       price: "$19.98",
       amount: "19.98",
@@ -27,6 +28,7 @@ function Chapter() {
       tag: "+8%",
     },
     {
+      key: "pack_2999",
       coins: 2999,
       price: "$29.99",
       amount: "29.99",
@@ -34,6 +36,7 @@ function Chapter() {
       tag: "+10%",
     },
     {
+      key: "pack_3499",
       coins: 3499,
       price: "$34.99",
       amount: "34.99",
@@ -41,6 +44,7 @@ function Chapter() {
       tag: "+13%",
     },
     {
+      key: "pack_3999",
       coins: 3999,
       price: "$39.99",
       amount: "39.99",
@@ -48,6 +52,7 @@ function Chapter() {
       tag: "+21%",
     },
     {
+      key: "pack_5999",
       coins: 5999,
       price: "$59.99",
       amount: "59.99",
@@ -59,12 +64,58 @@ function Chapter() {
   const chapter = chapters.find((c) => c.id === chapterNumber) || chapters[0];
 
   useEffect(() => {
-    setCoins(getCoins());
+    const initUserAndLoadData = async () => {
+      try {
+        let userId = localStorage.getItem("userId");
 
-    const savedUnlocked = localStorage.getItem("unlockedChapters");
-    if (savedUnlocked) {
-      setUnlockedChapters(JSON.parse(savedUnlocked));
-    }
+        const initRes = await fetch(
+          "https://novel-world-api.onrender.com/api/user/init",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ userId }),
+          }
+        );
+
+        const initData = await initRes.json();
+
+        if (!initRes.ok || !initData.success) {
+          throw new Error(initData.error || "Failed to initialize user");
+        }
+
+        localStorage.setItem("userId", initData.userId);
+
+        const userRes = await fetch(
+          "https://novel-world-api.onrender.com/api/user/data",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ userId: initData.userId }),
+          }
+        );
+
+        const userData = await userRes.json();
+
+        if (!userRes.ok || !userData.success) {
+          throw new Error(userData.error || "Failed to load user data");
+        }
+
+        setCoins(Number(userData.user.coins || 0));
+        setUnlockedChapters(
+          Array.isArray(userData.user.unlocked)
+            ? userData.user.unlocked
+            : []
+        );
+      } catch (error) {
+        console.error("init/load user error:", error);
+      }
+    };
+
+    initUserAndLoadData();
   }, []);
   
   useEffect(() => {
@@ -161,6 +212,7 @@ function Chapter() {
       localStorage.setItem(
         "pendingPack",
         JSON.stringify({
+          key: packToBuy.key,
           coins: packToBuy.coins,
           price: packToBuy.price,
           amount: packToBuy.amount,
@@ -175,9 +227,8 @@ function Chapter() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            amount: packToBuy.amount,
-            currency: "USD",
-            description: `${packToBuy.coins} Coins Pack`,
+            userId: localStorage.getItem("userId"),
+            packKey: packToBuy.key,
           }),
         }
       );
