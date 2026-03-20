@@ -122,7 +122,9 @@ function Chapter() {
 
     try {
       setPaypalLoading(true);
-
+      
+      localStorage.setItem("lastChapter", String(chapterNumber));
+      
       localStorage.setItem(
         "pendingPack",
         JSON.stringify({
