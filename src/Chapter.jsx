@@ -397,12 +397,22 @@ function Chapter() {
                   );
                 })}
 
-                <div style={styles.packCard}>
+                <div
+                  style={styles.packCard}
+                  onClick={() =>
+                    handleSelectPack({
+                      key: "svip_7day",
+                      coins: 0,
+                      price: 49.99,
+                      amount: "49.99",
+                      type: "vip",
+                    })
+                  }
+                >
                   <div style={styles.vipBadge}>SVIP</div>
                   <div style={styles.vipPrice}>$49.99</div>
                   <div style={styles.vipSub}>7 Day</div>
                 </div>
-              </div>
 
               <button
                 style={styles.payNowButton}
