@@ -280,6 +280,7 @@ app.post("/api/paypal/create-order", async (req, res) => {
       paypal_order_id: data.id,
       coins: pack.coins,
       amount: pack.amount,
+      pack_key: packKey,
       status: "pending",
     });
 
@@ -358,7 +359,7 @@ app.post("/api/paypal/capture-order", async (req, res) => {
 
     const { data: user, error: userError } = await supabase
       .from("users")
-      .select("coins")
+      .select("coins, vip_expiry")
       .eq("id", userId)
       .single();
 
@@ -366,11 +367,44 @@ app.post("/api/paypal/capture-order", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const updatedCoins = Number(user.coins || 0) + Number(purchase.coins || 0);
-
+    let updatedCoins = Number(user.coins || 0);
+    let updatedVipExpiry = user.vip_expiry || null;
+    
+    // 🧠 CHECK IF SVIP
+    if (purchase.pack_key === "svip_7day") {
+      const now = new Date();
+    
+      const currentVip = user.vip_expiry
+        ? new Date(user.vip_expiry)
+        : null;
+    
+      let newExpiry;
+    
+      if (currentVip && currentVip > now) {
+        // extend existing VIP
+        newExpiry = new Date(
+          currentVip.getTime() + 7 * 24 * 60 * 60 * 1000
+        );
+      } else {
+        // start fresh
+        newExpiry = new Date(
+          now.getTime() + 7 * 24 * 60 * 60 * 1000
+        );
+      }
+    
+      updatedVipExpiry = newExpiry.toISOString();
+    } else {
+      // normal coin pack
+      updatedCoins =
+        Number(user.coins || 0) + Number(purchase.coins || 0);
+    }
+    
     const { error: updateUserError } = await supabase
       .from("users")
-      .update({ coins: updatedCoins })
+      .update({
+        coins: updatedCoins,
+        vip_expiry: updatedVipExpiry,
+      })
       .eq("id", userId);
 
     if (updateUserError) {
@@ -389,6 +423,7 @@ app.post("/api/paypal/capture-order", async (req, res) => {
     res.json({
       success: true,
       addCoins: Number(purchase.coins || 0),
+      vipActivated: purchase.pack_key === "svip_7day",
       capture: data,
     });
   } catch (error) {
