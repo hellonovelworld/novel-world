@@ -251,7 +251,7 @@ function Chapter() {
 
                         setTimeout(() => {
                           handlePayNow(pack);
-                        }, 150);
+                        }, 100);
                       }}
                       disabled={paypalLoading}
                       style={
