@@ -265,7 +265,6 @@ function Chapter() {
           body: JSON.stringify({
             userId,
             chapterNumber,
-            price: unlockPrice,
           }),
         }
       );
