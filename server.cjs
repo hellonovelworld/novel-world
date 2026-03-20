@@ -79,6 +79,11 @@ app.post("/api/paypal/create-order", async (req, res) => {
       },
       body: JSON.stringify({
         intent: "CAPTURE",
+        application_context: {
+          return_url: "https://novel-world.com/paypal-success",
+          cancel_url: "https://novel-world.com/paypal-cancel",
+          user_action: "PAY_NOW",
+        },
         purchase_units: [
           {
             description,
@@ -97,7 +102,12 @@ app.post("/api/paypal/create-order", async (req, res) => {
       return res.status(response.status).json(data);
     }
 
-    res.json({ id: data.id });
+    const approveUrl = data.links?.find((link) => link.rel === "approve")?.href;
+
+    res.json({
+      id: data.id,
+      approveUrl,
+    });
   } catch (error) {
     console.error("Create order error:", error);
     res.status(500).json({ error: error.message });
