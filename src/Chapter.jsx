@@ -336,7 +336,7 @@ function Chapter() {
                 onClick={handlePayNow}
                 disabled={paypalLoading}
               >
-                {paypalLoading ? "OPENING PAYPAL..." : "PAY NOW"}
+                {paypalLoading ? "Redirecting to PayPal..." : "PAY NOW"}
               </button>
             </div>
           </>
