@@ -12,7 +12,7 @@ function Chapter() {
   const [showRecommend, setShowRecommend] = useState(false);
   const [coins, setCoins] = useState(0);
   const [unlockedChapters, setUnlockedChapters] = useState([]);
-  const [selectedPack, setSelectedPack] = useState(null);
+  const [selectedPackKey, setSelectedPackKey] = useState(null);
   const [paypalLoading, setPaypalLoading] = useState(false);
 
   const chapterNumber = Number(id) || 1;
@@ -58,6 +58,15 @@ function Chapter() {
       amount: "59.99",
       bonus: "+1889 Bonus",
       tag: "+31%",
+    },
+    {
+      key: "svip_7day",
+      coins: 0,
+      price: "$49.99",
+      amount: "49.99",
+      bonus: "7 Days Unlimited",
+      tag: "SVIP",
+      isVip: true,
     },
   ];
 
@@ -193,7 +202,7 @@ function Chapter() {
   };
 
   const handlePackSelect = (pack) => {
-    setSelectedPack(pack.coins);
+    setSelectedPack(pack.key);
   };
 
   const handlePayNow = async (packArg = null) => {
@@ -291,7 +300,7 @@ function Chapter() {
     setShowCatalogue(false);
   };
 
-  const selectedPackData = packs.find((pack) => pack.coins === selectedPack);
+  const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
 
   const paragraphs = (chapter.content || "")
     .split("\n\n")
@@ -344,7 +353,7 @@ function Chapter() {
 
               <div style={styles.packGrid}>
                 {packs.map((pack) => {
-                  const isSelected = selectedPack === pack.coins;
+                  const isSelected = selectedPack === pack.key;
 
                   return (
                     <button
