@@ -51,6 +51,12 @@ const PACKS = {
   pack_3499: { coins: 3499, amount: "34.99" },
   pack_3999: { coins: 3999, amount: "39.99" },
   pack_5999: { coins: 5999, amount: "59.99" },
+  
+  svip_7day: {
+    coins: 0,
+    amount: "49.99",
+    vipDays: 7,
+  },
 };
 
 const CHAPTER_PRICES = {
