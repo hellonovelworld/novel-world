@@ -246,7 +246,14 @@ function Chapter() {
                     <button
                       key={pack.coins}
                       type="button"
-                      onClick={() => handlePayNow(pack)}
+                      onClick={() => {
+                        setSelectedPack(pack.coins);
+
+                        setTimeout(() => {
+                          handlePayNow(pack);
+                        }, 150);
+                      }}
+                      disabled={paypalLoading}
                       style={
                         isSelected
                           ? { ...styles.packCard, ...styles.packCardDark }
