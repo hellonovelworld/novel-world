@@ -67,6 +67,32 @@ function Chapter() {
     }
   }, []);
 
+  useEffect(() => {
+    setPaypalLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const resetPaypalLoading = () => {
+      setPaypalLoading(false);
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        setPaypalLoading(false);
+      }
+    };
+
+    window.addEventListener("pageshow", resetPaypalLoading);
+    window.addEventListener("focus", resetPaypalLoading);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pageshow", resetPaypalLoading);
+      window.removeEventListener("focus", resetPaypalLoading);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   const refreshCoins = () => {
     setCoins(getCoins());
   };
@@ -354,7 +380,9 @@ function Chapter() {
                 <div>
                   <div style={styles.drawerTitle}>{chapter.novelTitle}</div>
                   <div style={styles.drawerMeta}>
-                    <span style={styles.drawerCount}>{chapters.length} Chapter</span>
+                    <span style={styles.drawerCount}>
+                      {chapters.length} Chapter
+                    </span>
                     <span style={styles.drawerStatus}>Complete</span>
                   </div>
                 </div>
@@ -420,14 +448,17 @@ function Chapter() {
                 Cancel
               </button>
 
-              <button style={styles.modalPay} onClick={handlePayNow}>
-                Pay Now
+              <button
+                style={styles.modalPay}
+                onClick={handlePayNow}
+                disabled={paypalLoading}
+              >
+                {paypalLoading ? "OPENING PAYPAL..." : "Pay Now"}
               </button>
             </div>
           </div>
         </div>
       )}
-
 
       {showRecommend && (
         <div
