@@ -66,7 +66,12 @@ function Chapter() {
       setUnlockedChapters(JSON.parse(savedUnlocked));
     }
   }, []);
-
+  
+  useEffect(() => {
+    fetch("https://novel-world-api.onrender.com/health")
+      .catch(() => {});
+  }, []);
+  
   useEffect(() => {
     setPaypalLoading(false);
   }, []);
