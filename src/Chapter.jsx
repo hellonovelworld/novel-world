@@ -246,21 +246,44 @@ function Chapter() {
     }
   };
 
-  const handleUnlockNow = () => {
-    const success = spendCoins(unlockPrice);
+  const handleUnlockNow = async () => {
+    if (coins < unlockPrice) {
+      setShowModal(true);
+      return;
+     }
 
-    if (success) {
-      const updatedUnlocked = [...new Set([...unlockedChapters, chapterNumber])];
-      setUnlockedChapters(updatedUnlocked);
-      localStorage.setItem(
-        "unlockedChapters",
-        JSON.stringify(updatedUnlocked)
+    try {
+      const userId = localStorage.getItem("userId");
+
+      const response = await fetch(
+        "https://novel-world-api.onrender.com/api/unlock-chapter",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId,
+            chapterNumber,
+            price: unlockPrice,
+          }),
+        }
       );
-      refreshCoins();
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        alert(data.error || "Unlock failed");
+        return;
+      }
+
+      setCoins(Number(data.coins || 0));
+      setUnlockedChapters(Array.isArray(data.unlocked) ? data.unlocked : []);
       setShowModal(false);
       alert(`Chapter ${chapterNumber} unlocked successfully.`);
-    } else {
-      setShowModal(true);
+    } catch (error) {
+      console.error("unlock error:", error);
+      alert("Unlock failed");
     }
   };
 
