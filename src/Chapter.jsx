@@ -114,23 +114,25 @@ function Chapter() {
     setSelectedPack(pack.coins);
   };
 
-  const handlePayNow = async () => {
-    if (!selectedPackData) {
+  const handlePayNow = async (packArg = null) => {
+    const packToBuy = packArg || selectedPackData;
+
+    if (!packToBuy) {
       alert("Please select a coin package first.");
       return;
     }
 
     try {
       setPaypalLoading(true);
-      
+
       localStorage.setItem("lastChapter", String(chapterNumber));
-      
+
       localStorage.setItem(
         "pendingPack",
         JSON.stringify({
-          coins: selectedPackData.coins,
-          price: selectedPackData.price,
-          amount: selectedPackData.amount,
+          coins: packToBuy.coins,
+          price: packToBuy.price,
+          amount: packToBuy.amount,
         })
       );
 
@@ -142,15 +144,14 @@ function Chapter() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            amount: selectedPackData.amount,
+            amount: packToBuy.amount,
             currency: "USD",
-            description: `${selectedPackData.coins} Coins Pack`,
+            description: `${packToBuy.coins} Coins Pack`,
           }),
         }
       );
 
       const data = await response.json();
-      console.log("create-order redirect response:", data);
 
       if (!response.ok || !data.approveUrl) {
         throw new Error(data.error || "Failed to start PayPal checkout");
@@ -158,7 +159,6 @@ function Chapter() {
 
       window.location.href = data.approveUrl;
     } catch (err) {
-      console.error("redirect checkout error:", err);
       alert(`Unable to open PayPal: ${err.message || "Unknown error"}`);
       setPaypalLoading(false);
     }
@@ -246,7 +246,7 @@ function Chapter() {
                     <button
                       key={pack.coins}
                       type="button"
-                      onClick={() => handlePackSelect(pack)}
+                      onClick={() => handlePayNow(pack)}
                       style={
                         isSelected
                           ? { ...styles.packCard, ...styles.packCardDark }
