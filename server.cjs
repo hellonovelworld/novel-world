@@ -4,9 +4,26 @@ const cors = require("cors");
 
 const app = express();
 
-app.use(cors({
-  origin: "http://localhost:5173",
-}));
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://novel-world.com",
+  "https://www.novel-world.com",
+  "https://novel-world.vercel.app",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+  })
+);
 
 app.use(express.json());
 
@@ -43,6 +60,10 @@ async function getAccessToken() {
 
   return data.access_token;
 }
+
+app.get("/", (req, res) => {
+  res.send("Novel World PayPal backend is running");
+});
 
 app.post("/api/paypal/create-order", async (req, res) => {
   try {
@@ -117,6 +138,8 @@ app.post("/api/paypal/capture-order", async (req, res) => {
   }
 });
 
-app.listen(3000, () => {
-  console.log("PayPal server running on http://localhost:3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`PayPal server running on port ${PORT}`);
 });
