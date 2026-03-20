@@ -403,7 +403,7 @@ function Chapter() {
                     setPaypalLoading(true);
 
                     const response = await fetch(
-                      "http://localhost:3000/api/paypal/create-order",
+                      "https://novel-world-api.onrender.com/api/paypal/create-order",
                       {
                         method: "POST",
                         headers: {
@@ -441,7 +441,7 @@ function Chapter() {
                     setPaypalLoading(true);
 
                     const response = await fetch(
-                      "http://localhost:3000/api/paypal/capture-order",
+                      "https://novel-world-api.onrender.com/api/paypal/capture-order",
                       {
                         method: "POST",
                         headers: {
