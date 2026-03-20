@@ -1,6 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { PayPalButtons } from "@paypal/react-paypal-js";
 import { getCoins, spendCoins } from "./wallet";
 import { chapters } from "./chaptersData";
 
@@ -11,7 +10,6 @@ function Chapter() {
   const [showCatalogue, setShowCatalogue] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showRecommend, setShowRecommend] = useState(false);
-  const [showPaypalCheckout, setShowPaypalCheckout] = useState(false);
   const [coins, setCoins] = useState(0);
   const [unlockedChapters, setUnlockedChapters] = useState([]);
   const [selectedPack, setSelectedPack] = useState(null);
@@ -114,15 +112,54 @@ function Chapter() {
 
   const handlePackSelect = (pack) => {
     setSelectedPack(pack.coins);
-    setShowPaypalCheckout(true);
   };
 
-  const handlePayNow = () => {
-    if (!selectedPack) {
+  const handlePayNow = async () => {
+    if (!selectedPackData) {
       alert("Please select a coin package first.");
       return;
     }
-    setShowPaypalCheckout(true);
+
+    try {
+      setPaypalLoading(true);
+
+      localStorage.setItem(
+        "pendingPack",
+        JSON.stringify({
+          coins: selectedPackData.coins,
+          price: selectedPackData.price,
+          amount: selectedPackData.amount,
+        })
+      );
+
+      const response = await fetch(
+        "https://novel-world-api.onrender.com/api/paypal/create-order",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            amount: selectedPackData.amount,
+            currency: "USD",
+            description: `${selectedPackData.coins} Coins Pack`,
+          }),
+        }
+      );
+
+      const data = await response.json();
+      console.log("create-order redirect response:", data);
+
+      if (!response.ok || !data.approveUrl) {
+        throw new Error(data.error || "Failed to start PayPal checkout");
+      }
+
+      window.location.href = data.approveUrl;
+    } catch (err) {
+      console.error("redirect checkout error:", err);
+      alert(`Unable to open PayPal: ${err.message || "Unknown error"}`);
+      setPaypalLoading(false);
+    }
   };
 
   const handleUnlockNow = () => {
@@ -254,8 +291,12 @@ function Chapter() {
                 </div>
               </div>
 
-              <button style={styles.payNowButton} onClick={handlePayNow}>
-                PAY NOW
+              <button
+                style={styles.payNowButton}
+                onClick={handlePayNow}
+                disabled={paypalLoading}
+              >
+                {paypalLoading ? "OPENING PAYPAL..." : "PAY NOW"}
               </button>
             </div>
           </>
@@ -378,132 +419,6 @@ function Chapter() {
         </div>
       )}
 
-      {showPaypalCheckout && selectedPackData && (
-        <div
-          style={styles.modalOverlay}
-          onClick={() => setShowPaypalCheckout(false)}
-        >
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Buy {selectedPackData.coins} Coins</h3>
-            <p style={styles.modalText}>
-              Complete your payment below for {selectedPackData.price}.
-            </p>
-
-            <div style={styles.paypalBox}>
-              <PayPalButtons
-                style={{
-                  layout: "vertical",
-                  shape: "rect",
-                  label: "paypal",
-                }}
-                disabled={paypalLoading}
-                forceReRender={[selectedPackData.coins, selectedPackData.amount]}
-                createOrder={async () => {
-                  try {
-                    setPaypalLoading(true);
-
-                    const response = await fetch(
-                      "https://novel-world-api.onrender.com/api/paypal/create-order",
-                      {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                          amount: selectedPackData.amount,
-                          currency: "USD",
-                          description: `${selectedPackData.coins} Coins Pack`,
-                        }),
-                      }
-                    );
-
-                    const data = await response.json();
-                    console.log("create-order response:", data);
-
-                    if (!response.ok || !data.id) {
-                      throw new Error(
-                        data.error ||
-                          JSON.stringify(data) ||
-                          "Failed to create PayPal order"
-                      );
-                    }
-
-                    return data.id;
-                  } catch (err) {
-                    console.error("createOrder error:", err);
-                    throw err;
-                  } finally {
-                    setPaypalLoading(false);
-                  }
-                }}
-                onApprove={async (data) => {
-                  try {
-                    setPaypalLoading(true);
-
-                    const response = await fetch(
-                      "https://novel-world-api.onrender.com/api/paypal/capture-order",
-                      {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                          orderID: data.orderID,
-                          packCoins: selectedPackData.coins,
-                        }),
-                      }
-                    );
-
-                    const result = await response.json();
-                    console.log("capture-order response:", result);
-
-                    if (!response.ok || !result.success) {
-                      alert(
-                        `Payment capture failed: ${
-                          result.error || "Unknown error"
-                        }`
-                      );
-                      return;
-                    }
-
-                    addCoinsToWallet(result.addCoins || selectedPackData.coins);
-                    setShowPaypalCheckout(false);
-                    alert(
-                      `${selectedPackData.coins} coins added successfully!`
-                    );
-                  } catch (err) {
-                    console.error("onApprove error:", err);
-                    alert(
-                      `Payment capture failed: ${
-                        err.message || "Unknown error"
-                      }`
-                    );
-                  } finally {
-                    setPaypalLoading(false);
-                  }
-                }}
-                onCancel={() => {
-                  setPaypalLoading(false);
-                }}
-                onError={(err) => {
-                  setPaypalLoading(false);
-                  console.error("PayPal error:", err);
-                  alert(
-                    `PayPal checkout error: ${err?.message || "Unknown error"}`
-                  );
-                }}
-              />
-            </div>
-
-            <button
-              style={styles.modalCancelFull}
-              onClick={() => setShowPaypalCheckout(false)}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
 
       {showRecommend && (
         <div
