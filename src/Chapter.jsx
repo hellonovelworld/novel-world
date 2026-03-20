@@ -300,7 +300,9 @@ function Chapter() {
     setShowCatalogue(false);
   };
 
-  const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
+  const selectedPackData = packs.find(
+    (pack) => pack.key === selectedPackKey
+  );
 
   const paragraphs = (chapter.content || "")
     .split("\n\n")
@@ -353,14 +355,14 @@ function Chapter() {
 
               <div style={styles.packGrid}>
                 {packs.map((pack) => {
-                  const isSelected = selectedPack === pack.key;
+                  const isSelected = selectedPackKey === pack.key;
 
                   return (
                     <button
-                      key={pack.coins}
+                      key={pack.key}
                       type="button"
                       onClick={() => {
-                        setSelectedPack(pack.coins);
+                        setSelectedPackKey(pack.key);
 
                         setTimeout(() => {
                           handlePayNow(pack);
@@ -371,57 +373,77 @@ function Chapter() {
                         isSelected
                           ? { ...styles.packCard, ...styles.packCardDark }
                           : styles.packCard
-                      }
-                    >
-                      <div style={styles.badge}>{pack.tag}</div>
-
-                      <div
-                        style={
-                          isSelected
-                            ? { ...styles.packBonus, color: "#ff6a84" }
-                            : styles.packBonus
                         }
                       >
-                        {pack.bonus}
-                      </div>
+                        {pack.isVip ? (
+                          <>
+                            <div style={styles.vipBadge}>{pack.tag}</div>
 
-                      <div
-                        style={
-                          isSelected
-                            ? { ...styles.packCoins, color: "#fff" }
-                            : styles.packCoins
-                        }
-                      >
-                        {pack.coins} <span style={styles.coinsSmall}>Coins</span>
-                      </div>
+                            <div
+                              style={
+                                isSelected
+                                  ? { ...styles.packBonus, color: "#ff6a84" }
+                                  : styles.packBonus
+                              }
+                            >
+                              {pack.bonus}
+                            </div>
 
-                      <div
-                        style={
-                          isSelected ? styles.packPriceDark : styles.packPrice
-                        }
-                      >
-                        {pack.price}
-                      </div>
-                    </button>
-                  );
-                })}
+                            <div
+                              style={
+                                isSelected
+                                    ? { ...styles.vipPrice, color: "#fff" }
+                                    : styles.vipPrice
+                                }
+                              >
+                                {pack.price}
+                              </div>
 
-                <div
-                  style={styles.packCard}
-                  onClick={() =>
-                    handleSelectPack({
-                      key: "svip_7day",
-                      coins: 0,
-                      price: 49.99,
-                      amount: "49.99",
-                      type: "vip",
-                    })
-                  }
-                >
-                  <div style={styles.vipBadge}>SVIP</div>
-                  <div style={styles.vipPrice}>$49.99</div>
-                  <div style={styles.vipSub}>7 Day</div>
-                </div>
+                              <div
+                                style={
+                                  isSelected ? styles.packPriceDark : styles.vipSub
+                                }
+                              >
+                                7 Day
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={styles.badge}>{pack.tag}</div>
+
+                              <div
+                                style={
+                                  isSelected
+                                    ? { ...styles.packBonus, color: "#ff6a84" }
+                                    : styles.packBonus
+                                }
+                              >
+                                {pack.bonus}
+                              </div>
+
+                              <div
+                                style={
+                                  isSelected
+                                    ? { ...styles.packCoins, color: "#fff" }
+                                    : styles.packCoins
+                                  }
+                                >
+                                  {pack.coins} <span style={styles.coinsSmall}>Coins</span>
+                                </div>
+
+                                <div
+                                  style={
+                                    isSelected ? styles.packPriceDark : styles.packPrice
+                                  }
+                                >
+                                  {pack.price}
+                                </div>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
 
               <button
                 style={styles.payNowButton}
