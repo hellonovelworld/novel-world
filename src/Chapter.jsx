@@ -1,6 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getCoins, spendCoins } from "./wallet";
 import { chapters } from "./chaptersData";
 
 function Chapter() {
@@ -14,6 +13,8 @@ function Chapter() {
   const [unlockedChapters, setUnlockedChapters] = useState([]);
   const [selectedPackKey, setSelectedPackKey] = useState(null);
   const [paypalLoading, setPaypalLoading] = useState(false);
+  const [isVip, setIsVip] = useState(false);
+  const [vipExpiry, setVipExpiry] = useState(null);
 
   const chapterNumber = Number(id) || 1;
   const lastChapter = chapters.length;
@@ -113,25 +114,29 @@ function Chapter() {
           throw new Error(userData.error || "Failed to load user data");
         }
 
-        setCoins(Number(userData.user.coins || 0));
-        setUnlockedChapters(
-          Array.isArray(userData.user.unlocked)
-            ? userData.user.unlocked
-            : []
-        );
+        const user = userData.user || {};
+        const unlocked = Array.isArray(user.unlocked) ? user.unlocked : [];
+        const expiry = user.vip_expiry || null;
+        const vipActive = expiry ? new Date(expiry) > new Date() : false;
+
+        setCoins(Number(user.coins || 0));
+        setUnlockedChapters(unlocked);
+        setVipExpiry(expiry);
+        setIsVip(vipActive);
       } catch (error) {
         console.error("init/load user error:", error);
+        setIsVip(false);
+        setVipExpiry(null);
       }
     };
 
     initUserAndLoadData();
   }, []);
-  
+
   useEffect(() => {
-    fetch("https://novel-world-api.onrender.com/health")
-      .catch(() => {});
+    fetch("https://novel-world-api.onrender.com/health").catch(() => {});
   }, []);
-  
+
   useEffect(() => {
     setPaypalLoading(false);
   }, []);
@@ -158,16 +163,6 @@ function Chapter() {
     };
   }, []);
 
-  const refreshCoins = () => {
-    setCoins(getCoins());
-  };
-
-  const addCoinsToWallet = (amount) => {
-    const updated = Number(getCoins()) + Number(amount);
-    localStorage.setItem("coins", String(updated));
-    setCoins(updated);
-  };
-
   const isLastChapter = chapterNumber === lastChapter;
 
   const chapterPrices = {
@@ -182,8 +177,12 @@ function Chapter() {
 
   const unlockPrice = chapterPrices[chapterNumber] || 0;
 
-  const isLockedChapter =
-    chapter.locked && !unlockedChapters.includes(chapterNumber);
+  const isChapterUnlocked = (chapterId) => {
+    if (isVip) return true;
+    return !chapters.find((c) => c.id === chapterId)?.locked || unlockedChapters.includes(chapterId);
+  };
+
+  const isLockedChapter = !isChapterUnlocked(chapterNumber);
 
   const handlePrev = () => {
     if (chapterNumber <= 1) {
@@ -199,10 +198,6 @@ function Chapter() {
     } else {
       navigate(`/chapter/${chapterNumber + 1}`);
     }
-  };
-
-  const handlePackSelect = (pack) => {
-    setSelectedPack(pack.key);
   };
 
   const handlePayNow = async (packArg = null) => {
@@ -256,10 +251,15 @@ function Chapter() {
   };
 
   const handleUnlockNow = async () => {
+    if (isVip) {
+      setShowModal(false);
+      return;
+    }
+
     if (coins < unlockPrice) {
       setShowModal(true);
       return;
-     }
+    }
 
     try {
       const userId = localStorage.getItem("userId");
@@ -300,9 +300,7 @@ function Chapter() {
     setShowCatalogue(false);
   };
 
-  const selectedPackData = packs.find(
-    (pack) => pack.key === selectedPackKey
-  );
+  const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
 
   const paragraphs = (chapter.content || "")
     .split("\n\n")
@@ -319,6 +317,12 @@ function Chapter() {
       </div>
 
       <div style={styles.content}>
+        {isVip && (
+          <div style={styles.vipActiveBanner}>
+            VIP Active · Unlimited Access
+          </div>
+        )}
+
         <h1 style={styles.chapterTitle}>{chapter.title}</h1>
 
         {!isLockedChapter ? (
@@ -373,77 +377,77 @@ function Chapter() {
                         isSelected
                           ? { ...styles.packCard, ...styles.packCardDark }
                           : styles.packCard
-                        }
-                      >
-                        {pack.isVip ? (
-                          <>
-                            <div style={styles.vipBadge}>{pack.tag}</div>
+                      }
+                    >
+                      {pack.isVip ? (
+                        <>
+                          <div style={styles.vipBadge}>{pack.tag}</div>
 
-                            <div
-                              style={
-                                isSelected
-                                  ? { ...styles.packBonus, color: "#ff6a84" }
-                                  : styles.packBonus
-                              }
-                            >
-                              {pack.bonus}
-                            </div>
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.packBonus, color: "#ff6a84" }
+                                : styles.packBonus
+                            }
+                          >
+                            {pack.bonus}
+                          </div>
 
-                            <div
-                              style={
-                                isSelected
-                                    ? { ...styles.vipPrice, color: "#fff" }
-                                    : styles.vipPrice
-                                }
-                              >
-                                {pack.price}
-                              </div>
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.vipPrice, color: "#fff" }
+                                : styles.vipPrice
+                            }
+                          >
+                            {pack.price}
+                          </div>
 
-                              <div
-                                style={
-                                  isSelected ? styles.packPriceDark : styles.vipSub
-                                }
-                              >
-                                7 Day
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <div style={styles.badge}>{pack.tag}</div>
+                          <div
+                            style={
+                              isSelected ? styles.packPriceDark : styles.vipSub
+                            }
+                          >
+                            7 Day
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={styles.badge}>{pack.tag}</div>
 
-                              <div
-                                style={
-                                  isSelected
-                                    ? { ...styles.packBonus, color: "#ff6a84" }
-                                    : styles.packBonus
-                                }
-                              >
-                                {pack.bonus}
-                              </div>
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.packBonus, color: "#ff6a84" }
+                                : styles.packBonus
+                            }
+                          >
+                            {pack.bonus}
+                          </div>
 
-                              <div
-                                style={
-                                  isSelected
-                                    ? { ...styles.packCoins, color: "#fff" }
-                                    : styles.packCoins
-                                  }
-                                >
-                                  {pack.coins} <span style={styles.coinsSmall}>Coins</span>
-                                </div>
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.packCoins, color: "#fff" }
+                                : styles.packCoins
+                            }
+                          >
+                            {pack.coins} <span style={styles.coinsSmall}>Coins</span>
+                          </div>
 
-                                <div
-                                  style={
-                                    isSelected ? styles.packPriceDark : styles.packPrice
-                                  }
-                                >
-                                  {pack.price}
-                                </div>
-                              </>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+                          <div
+                            style={
+                              isSelected ? styles.packPriceDark : styles.packPrice
+                            }
+                          >
+                            {pack.price}
+                          </div>
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
 
               <button
                 style={styles.payNowButton}
@@ -520,9 +524,7 @@ function Chapter() {
             <div style={styles.chapterList}>
               {chapters.map((chapterItem) => {
                 const isCurrent = chapterItem.id === chapterNumber;
-                const locked =
-                  chapterItem.locked &&
-                  !unlockedChapters.includes(chapterItem.id);
+                const locked = !isChapterUnlocked(chapterItem.id);
 
                 return (
                   <button
@@ -550,7 +552,7 @@ function Chapter() {
         </div>
       )}
 
-      {showModal && (
+      {showModal && !isVip && (
         <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Unlock Chapter {chapterNumber}</h3>
@@ -689,6 +691,17 @@ const styles = {
     background: "#fafafa",
     boxSizing: "border-box",
     position: "relative",
+  },
+
+  vipActiveBanner: {
+    background: "linear-gradient(90deg, #f7d774, #f2c94c)",
+    color: "#3a2a00",
+    fontSize: "12px",
+    fontWeight: "800",
+    textAlign: "center",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    marginBottom: "14px",
   },
 
   chapterTitle: {
