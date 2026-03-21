@@ -1,7 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { PayPalButtons } from "@paypal/react-paypal-js";
-import { getCoins, spendCoins } from "./wallet";
 import { chapters } from "./chaptersData";
 
 function Chapter() {
@@ -11,17 +9,19 @@ function Chapter() {
   const [showCatalogue, setShowCatalogue] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showRecommend, setShowRecommend] = useState(false);
-  const [showPaypalCheckout, setShowPaypalCheckout] = useState(false);
   const [coins, setCoins] = useState(0);
   const [unlockedChapters, setUnlockedChapters] = useState([]);
-  const [selectedPack, setSelectedPack] = useState(null);
+  const [selectedPackKey, setSelectedPackKey] = useState(null);
   const [paypalLoading, setPaypalLoading] = useState(false);
+  const [isVip, setIsVip] = useState(false);
+  const [vipExpiry, setVipExpiry] = useState(null);
 
   const chapterNumber = Number(id) || 1;
   const lastChapter = chapters.length;
 
   const packs = [
     {
+      key: "pack_1998",
       coins: 1998,
       price: "$19.98",
       amount: "19.98",
@@ -29,6 +29,7 @@ function Chapter() {
       tag: "+8%",
     },
     {
+      key: "pack_2999",
       coins: 2999,
       price: "$29.99",
       amount: "29.99",
@@ -36,6 +37,7 @@ function Chapter() {
       tag: "+10%",
     },
     {
+      key: "pack_3499",
       coins: 3499,
       price: "$34.99",
       amount: "34.99",
@@ -43,6 +45,7 @@ function Chapter() {
       tag: "+13%",
     },
     {
+      key: "pack_3999",
       coins: 3999,
       price: "$39.99",
       amount: "39.99",
@@ -50,34 +53,115 @@ function Chapter() {
       tag: "+21%",
     },
     {
+      key: "pack_5999",
       coins: 5999,
       price: "$59.99",
       amount: "59.99",
       bonus: "+1889 Bonus",
       tag: "+31%",
     },
+    {
+      key: "svip_7day",
+      coins: 0,
+      price: "$49.99",
+      amount: "49.99",
+      bonus: "7 Days Unlimited",
+      tag: "SVIP",
+      isVip: true,
+    },
   ];
 
   const chapter = chapters.find((c) => c.id === chapterNumber) || chapters[0];
 
   useEffect(() => {
-    setCoins(getCoins());
+    const initUserAndLoadData = async () => {
+      try {
+        let userId = localStorage.getItem("userId");
 
-    const savedUnlocked = localStorage.getItem("unlockedChapters");
-    if (savedUnlocked) {
-      setUnlockedChapters(JSON.parse(savedUnlocked));
-    }
+        const initRes = await fetch(
+          "https://novel-world-api.onrender.com/api/user/init",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ userId }),
+          }
+        );
+
+        const initData = await initRes.json();
+
+        if (!initRes.ok || !initData.success) {
+          throw new Error(initData.error || "Failed to initialize user");
+        }
+
+        localStorage.setItem("userId", initData.userId);
+
+        const userRes = await fetch(
+          "https://novel-world-api.onrender.com/api/user/data",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ userId: initData.userId }),
+          }
+        );
+
+        const userData = await userRes.json();
+
+        if (!userRes.ok || !userData.success) {
+          throw new Error(userData.error || "Failed to load user data");
+        }
+
+        const user = userData.user || {};
+        const unlocked = Array.isArray(user.unlocked) ? user.unlocked : [];
+        const expiry = user.vip_expiry || null;
+        const vipActive = expiry ? new Date(expiry) > new Date() : false;
+
+        setCoins(Number(user.coins || 0));
+        setUnlockedChapters(unlocked);
+        setVipExpiry(expiry);
+        setIsVip(vipActive);
+      } catch (error) {
+        console.error("init/load user error:", error);
+        setIsVip(false);
+        setVipExpiry(null);
+      }
+    };
+
+    initUserAndLoadData();
   }, []);
 
-  const refreshCoins = () => {
-    setCoins(getCoins());
-  };
+  useEffect(() => {
+    fetch("https://novel-world-api.onrender.com/health").catch(() => {});
+  }, []);
 
-  const addCoinsToWallet = (amount) => {
-    const updated = Number(getCoins()) + Number(amount);
-    localStorage.setItem("coins", String(updated));
-    setCoins(updated);
-  };
+  useEffect(() => {
+    setPaypalLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const resetPaypalLoading = () => {
+      setPaypalLoading(false);
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        setPaypalLoading(false);
+      }
+    };
+
+    window.addEventListener("pageshow", resetPaypalLoading);
+    window.addEventListener("focus", resetPaypalLoading);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pageshow", resetPaypalLoading);
+      window.removeEventListener("focus", resetPaypalLoading);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const isLastChapter = chapterNumber === lastChapter;
 
@@ -93,8 +177,12 @@ function Chapter() {
 
   const unlockPrice = chapterPrices[chapterNumber] || 0;
 
-  const isLockedChapter =
-    chapter.locked && !unlockedChapters.includes(chapterNumber);
+  const isChapterUnlocked = (chapterId) => {
+    if (isVip) return true;
+    return !chapters.find((c) => c.id === chapterId)?.locked || unlockedChapters.includes(chapterId);
+  };
+
+  const isLockedChapter = !isChapterUnlocked(chapterNumber);
 
   const handlePrev = () => {
     if (chapterNumber <= 1) {
@@ -112,34 +200,98 @@ function Chapter() {
     }
   };
 
-  const handlePackSelect = (pack) => {
-    setSelectedPack(pack.coins);
-    setShowPaypalCheckout(true);
-  };
+  const handlePayNow = async (packArg = null) => {
+    const packToBuy = packArg || selectedPackData;
 
-  const handlePayNow = () => {
-    if (!selectedPack) {
+    if (!packToBuy) {
       alert("Please select a coin package first.");
       return;
     }
-    setShowPaypalCheckout(true);
+
+    try {
+      setPaypalLoading(true);
+
+      localStorage.setItem("lastChapter", String(chapterNumber));
+
+      localStorage.setItem(
+        "pendingPack",
+        JSON.stringify({
+          key: packToBuy.key,
+          coins: packToBuy.coins,
+          price: packToBuy.price,
+          amount: packToBuy.amount,
+        })
+      );
+
+      const response = await fetch(
+        "https://novel-world-api.onrender.com/api/paypal/create-order",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: localStorage.getItem("userId"),
+            packKey: packToBuy.key,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.approveUrl) {
+        throw new Error(data.error || "Failed to start PayPal checkout");
+      }
+
+      window.location.href = data.approveUrl;
+    } catch (err) {
+      alert(`Unable to open PayPal: ${err.message || "Unknown error"}`);
+      setPaypalLoading(false);
+    }
   };
 
-  const handleUnlockNow = () => {
-    const success = spendCoins(unlockPrice);
+  const handleUnlockNow = async () => {
+    if (isVip) {
+      setShowModal(false);
+      return;
+    }
 
-    if (success) {
-      const updatedUnlocked = [...new Set([...unlockedChapters, chapterNumber])];
-      setUnlockedChapters(updatedUnlocked);
-      localStorage.setItem(
-        "unlockedChapters",
-        JSON.stringify(updatedUnlocked)
+    if (coins < unlockPrice) {
+      setShowModal(true);
+      return;
+    }
+
+    try {
+      const userId = localStorage.getItem("userId");
+
+      const response = await fetch(
+        "https://novel-world-api.onrender.com/api/unlock-chapter",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId,
+            chapterNumber,
+          }),
+        }
       );
-      refreshCoins();
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        alert(data.error || "Unlock failed");
+        return;
+      }
+
+      setCoins(Number(data.coins || 0));
+      setUnlockedChapters(Array.isArray(data.unlocked) ? data.unlocked : []);
       setShowModal(false);
       alert(`Chapter ${chapterNumber} unlocked successfully.`);
-    } else {
-      setShowModal(true);
+    } catch (error) {
+      console.error("unlock error:", error);
+      alert("Unlock failed");
     }
   };
 
@@ -148,7 +300,7 @@ function Chapter() {
     setShowCatalogue(false);
   };
 
-  const selectedPackData = packs.find((pack) => pack.coins === selectedPack);
+  const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
 
   const paragraphs = (chapter.content || "")
     .split("\n\n")
@@ -165,6 +317,12 @@ function Chapter() {
       </div>
 
       <div style={styles.content}>
+        {isVip && (
+          <div style={styles.vipActiveBanner}>
+            VIP Active · Unlimited Access
+          </div>
+        )}
+
         <h1 style={styles.chapterTitle}>{chapter.title}</h1>
 
         {!isLockedChapter ? (
@@ -201,61 +359,102 @@ function Chapter() {
 
               <div style={styles.packGrid}>
                 {packs.map((pack) => {
-                  const isSelected = selectedPack === pack.coins;
+                  const isSelected = selectedPackKey === pack.key;
 
                   return (
                     <button
-                      key={pack.coins}
+                      key={pack.key}
                       type="button"
-                      onClick={() => handlePackSelect(pack)}
+                      onClick={() => {
+                        setSelectedPackKey(pack.key);
+
+                        setTimeout(() => {
+                          handlePayNow(pack);
+                        }, 100);
+                      }}
+                      disabled={paypalLoading}
                       style={
                         isSelected
                           ? { ...styles.packCard, ...styles.packCardDark }
                           : styles.packCard
                       }
                     >
-                      <div style={styles.badge}>{pack.tag}</div>
+                      {pack.isVip ? (
+                        <>
+                          <div style={styles.vipBadge}>{pack.tag}</div>
 
-                      <div
-                        style={
-                          isSelected
-                            ? { ...styles.packBonus, color: "#ff6a84" }
-                            : styles.packBonus
-                        }
-                      >
-                        {pack.bonus}
-                      </div>
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.packBonus, color: "#ff6a84" }
+                                : styles.packBonus
+                            }
+                          >
+                            {pack.bonus}
+                          </div>
 
-                      <div
-                        style={
-                          isSelected
-                            ? { ...styles.packCoins, color: "#fff" }
-                            : styles.packCoins
-                        }
-                      >
-                        {pack.coins} <span style={styles.coinsSmall}>Coins</span>
-                      </div>
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.vipPrice, color: "#fff" }
+                                : styles.vipPrice
+                            }
+                          >
+                            {pack.price}
+                          </div>
 
-                      <div
-                        style={
-                          isSelected ? styles.packPriceDark : styles.packPrice
-                        }
-                      >
-                        {pack.price}
-                      </div>
+                          <div
+                            style={
+                              isSelected ? styles.packPriceDark : styles.vipSub
+                            }
+                          >
+                            7 Day
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={styles.badge}>{pack.tag}</div>
+
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.packBonus, color: "#ff6a84" }
+                                : styles.packBonus
+                            }
+                          >
+                            {pack.bonus}
+                          </div>
+
+                          <div
+                            style={
+                              isSelected
+                                ? { ...styles.packCoins, color: "#fff" }
+                                : styles.packCoins
+                            }
+                          >
+                            {pack.coins} <span style={styles.coinsSmall}>Coins</span>
+                          </div>
+
+                          <div
+                            style={
+                              isSelected ? styles.packPriceDark : styles.packPrice
+                            }
+                          >
+                            {pack.price}
+                          </div>
+                        </>
+                      )}
                     </button>
                   );
                 })}
-
-                <div style={styles.packCard}>
-                  <div style={styles.vipBadge}>SVIP</div>
-                  <div style={styles.vipPrice}>$49.99</div>
-                  <div style={styles.vipSub}>7 Day</div>
-                </div>
               </div>
 
-              <button style={styles.payNowButton} onClick={handlePayNow}>
-                PAY NOW
+              <button
+                style={styles.payNowButton}
+                onClick={handlePayNow}
+                disabled={paypalLoading}
+              >
+                {paypalLoading ? "Redirecting to PayPal..." : "PAY NOW"}
               </button>
             </div>
           </>
@@ -304,7 +503,9 @@ function Chapter() {
                 <div>
                   <div style={styles.drawerTitle}>{chapter.novelTitle}</div>
                   <div style={styles.drawerMeta}>
-                    <span style={styles.drawerCount}>{chapters.length} Chapter</span>
+                    <span style={styles.drawerCount}>
+                      {chapters.length} Chapter
+                    </span>
                     <span style={styles.drawerStatus}>Complete</span>
                   </div>
                 </div>
@@ -323,9 +524,7 @@ function Chapter() {
             <div style={styles.chapterList}>
               {chapters.map((chapterItem) => {
                 const isCurrent = chapterItem.id === chapterNumber;
-                const locked =
-                  chapterItem.locked &&
-                  !unlockedChapters.includes(chapterItem.id);
+                const locked = !isChapterUnlocked(chapterItem.id);
 
                 return (
                   <button
@@ -353,7 +552,7 @@ function Chapter() {
         </div>
       )}
 
-      {showModal && (
+      {showModal && !isVip && (
         <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Unlock Chapter {chapterNumber}</h3>
@@ -370,137 +569,14 @@ function Chapter() {
                 Cancel
               </button>
 
-              <button style={styles.modalPay} onClick={handlePayNow}>
-                Pay Now
+              <button
+                style={styles.modalPay}
+                onClick={handlePayNow}
+                disabled={paypalLoading}
+              >
+                {paypalLoading ? "OPENING PAYPAL..." : "Pay Now"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showPaypalCheckout && selectedPackData && (
-        <div
-          style={styles.modalOverlay}
-          onClick={() => setShowPaypalCheckout(false)}
-        >
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Buy {selectedPackData.coins} Coins</h3>
-            <p style={styles.modalText}>
-              Complete your payment below for {selectedPackData.price}.
-            </p>
-
-            <div style={styles.paypalBox}>
-              <PayPalButtons
-                style={{
-                  layout: "vertical",
-                  shape: "rect",
-                  label: "paypal",
-                }}
-                disabled={paypalLoading}
-                forceReRender={[selectedPackData.coins, selectedPackData.amount]}
-                createOrder={async () => {
-                  try {
-                    setPaypalLoading(true);
-
-                    const response = await fetch(
-                      "https://novel-world-api.onrender.com/api/paypal/create-order",
-                      {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                          amount: selectedPackData.amount,
-                          currency: "USD",
-                          description: `${selectedPackData.coins} Coins Pack`,
-                        }),
-                      }
-                    );
-
-                    const data = await response.json();
-                    console.log("create-order response:", data);
-
-                    if (!response.ok || !data.id) {
-                      throw new Error(
-                        data.error ||
-                          JSON.stringify(data) ||
-                          "Failed to create PayPal order"
-                      );
-                    }
-
-                    return data.id;
-                  } catch (err) {
-                    console.error("createOrder error:", err);
-                    throw err;
-                  } finally {
-                    setPaypalLoading(false);
-                  }
-                }}
-                onApprove={async (data) => {
-                  try {
-                    setPaypalLoading(true);
-
-                    const response = await fetch(
-                      "https://novel-world-api.onrender.com/api/paypal/create-order",
-                      {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                          orderID: data.orderID,
-                          packCoins: selectedPackData.coins,
-                        }),
-                      }
-                    );
-
-                    const result = await response.json();
-                    console.log("capture-order response:", result);
-
-                    if (!response.ok || !result.success) {
-                      alert(
-                        `Payment capture failed: ${
-                          result.error || "Unknown error"
-                        }`
-                      );
-                      return;
-                    }
-
-                    addCoinsToWallet(result.addCoins || selectedPackData.coins);
-                    setShowPaypalCheckout(false);
-                    alert(
-                      `${selectedPackData.coins} coins added successfully!`
-                    );
-                  } catch (err) {
-                    console.error("onApprove error:", err);
-                    alert(
-                      `Payment capture failed: ${
-                        err.message || "Unknown error"
-                      }`
-                    );
-                  } finally {
-                    setPaypalLoading(false);
-                  }
-                }}
-                onCancel={() => {
-                  setPaypalLoading(false);
-                }}
-                onError={(err) => {
-                  setPaypalLoading(false);
-                  console.error("PayPal error:", err);
-                  alert(
-                    `PayPal checkout error: ${err?.message || "Unknown error"}`
-                  );
-                }}
-              />
-            </div>
-
-            <button
-              style={styles.modalCancelFull}
-              onClick={() => setShowPaypalCheckout(false)}
-            >
-              Cancel
-            </button>
           </div>
         </div>
       )}
@@ -615,6 +691,17 @@ const styles = {
     background: "#fafafa",
     boxSizing: "border-box",
     position: "relative",
+  },
+
+  vipActiveBanner: {
+    background: "linear-gradient(90deg, #f7d774, #f2c94c)",
+    color: "#3a2a00",
+    fontSize: "12px",
+    fontWeight: "800",
+    textAlign: "center",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    marginBottom: "14px",
   },
 
   chapterTitle: {

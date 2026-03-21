@@ -8,6 +8,8 @@ import Home from "./Home";
 import App from "./App";
 import Chapter from "./Chapter";
 import My from "./My";
+import PayPalSuccess from "./PayPalSuccess";
+import PayPalCancel from "./PayPalCancel";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -24,6 +26,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <Route path="/novel" element={<App />} />
           <Route path="/chapter/:id" element={<Chapter />} />
           <Route path="/my" element={<My />} />
+          <Route path="/paypal-success" element={<PayPalSuccess />} />
+          <Route path="/paypal-cancel" element={<PayPalCancel />} />
         </Routes>
       </BrowserRouter>
     </PayPalScriptProvider>
