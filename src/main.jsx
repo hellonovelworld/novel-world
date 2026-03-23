@@ -23,8 +23,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/novel" element={<App />} />
+          <Route path="/novel/:slug" element={<App />} />
           <Route path="/chapter/:id" element={<Chapter />} />
+          <Route path="/novel/:slug/chapter/:id" element={<Chapter />} />
           <Route path="/my" element={<My />} />
           <Route path="/paypal-success" element={<PayPalSuccess />} />
           <Route path="/paypal-cancel" element={<PayPalCancel />} />

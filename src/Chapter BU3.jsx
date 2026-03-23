@@ -2,9 +2,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-
 function Chapter() {
-  const { slug, id } = useParams();
+  const { id } = useParams();
   const navigate = useNavigate();
 
   const [showCatalogue, setShowCatalogue] = useState(false);
@@ -18,10 +17,6 @@ function Chapter() {
   const [vipExpiry, setVipExpiry] = useState(null);
   const [chapters, setChapters] = useState([]);
   const [chaptersLoading, setChaptersLoading] = useState(true);
-  const [novelId, setNovelId] = useState(null);
-  const [novelTitle, setNovelTitle] = useState(
-    "At My Mother’s Funeral, My Husband Chose His Mistress—So I Took Everything"
-  );
 
   const chapterNumber = Number(id) || 1;
   const lastChapter = chapters.length;
@@ -172,42 +167,13 @@ function Chapter() {
   }, []);
 
   useEffect(() => {
-    const fetchNovel = async () => {
-      const { data, error } = await supabase
-        .from("novels")
-        .select("id, title")
-        .eq("slug", slug)
-        .single();
-
-      if (error) {
-        console.error("Failed to fetch novel:", error);
-        return;
-      }
-
-      if (data?.id) {
-        setNovelId(data.id);
-      }
-
-      if (data?.title) {
-        setNovelTitle(data.title);
-      }
-    };
-
-    if (slug) {
-      fetchNovel();
-    }
-  }, [slug]);
-
-  useEffect(() => {
-    if (!novelId) return;
-
     const fetchChapters = async () => {
       setChaptersLoading(true);
 
       const { data, error } = await supabase
         .from("chapters")
         .select("*")
-        .eq("novel_id", novelId)
+        .eq("novel_id", "3ae33f72-06c5-4dd7-b4eb-d535bfb6214d")
         .order("chapter_number", { ascending: true });
 
       if (error) {
@@ -221,30 +187,46 @@ function Chapter() {
     };
 
     fetchChapters();
-  }, [novelId]);
+  }, []);
 
   const isLastChapter = chapterNumber === lastChapter;
-  const unlockPrice = Number(chapter?.coin_price || 0);
 
-  const isChapterUnlocked = (targetChapterNumber) => {
+  const chapterPrices = {
+    4: 449,
+    5: 508,
+    6: 563,
+    7: 508,
+    8: 521,
+    9: 540,
+    10: 563,
+  };
+
+  const unlockPrice = chapterPrices[chapterNumber] || 0;
+
+  const isChapterUnlocked = (chapterId) => {
     const chapterItem = chapters.find(
-      (c) => c.chapter_number === targetChapterNumber
+      (c) => c.chapter_number === chapterId
     );
 
     if (!chapterItem) return false;
+
+    // VIP unlocks everything
     if (isVip) return true;
+
+    // Free chapters
     if (chapterItem.is_free) return true;
 
-    return unlockedChapters.includes(targetChapterNumber);
+    // Purchased chapters
+    return unlockedChapters.includes(chapterId);
   };
 
   const isLockedChapter = !isChapterUnlocked(chapterNumber);
 
   const handlePrev = () => {
     if (chapterNumber <= 1) {
-      navigate(slug ? `/novel/${slug}` : "/novel");
+      navigate("/chapter/1");
     } else {
-      navigate(`/novel/${slug}/chapter/${chapterNumber - 1}`);
+      navigate(`/chapter/${chapterNumber - 1}`);
     }
   };
 
@@ -252,7 +234,7 @@ function Chapter() {
     if (chapterNumber >= lastChapter) {
       setShowRecommend(true);
     } else {
-      navigate(`/novel/${slug}/chapter/${chapterNumber + 1}`);
+      navigate(`/chapter/${chapterNumber + 1}`);
     }
   };
 
@@ -352,77 +334,24 @@ function Chapter() {
   };
 
   const handleChapterClick = (chapterItem) => {
-    navigate(`/novel/${slug}/chapter/${chapterItem.chapter_number}`);
+    navigate(`/chapter/${chapterItem.id}`);
     setShowCatalogue(false);
   };
 
   const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
 
-  const paragraphs = (chapter?.content || "")
+  const paragraphs = (chapter.content || "")
     .split("\n\n")
     .map((p) => p.trim())
     .filter((p) => p !== "");
 
-  if (chaptersLoading) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.topBar}>
-          <button
-            style={styles.backButton}
-            onClick={() =>
-              navigate(
-                `/novel/${slug}`
-              )
-            }
-          >
-            ‹
-          </button>
-          <span style={styles.topTitle}>{novelTitle}</span>
-        </div>
-
-        <div style={styles.content}>
-          <p style={styles.paragraph}>Loading chapters...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!chapter) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.topBar}>
-          <button style={styles.backButton} onClick={() => navigate(`/novel/${slug}`)}>
-            ‹
-          </button>
-
-          <span
-            style={{
-              ...styles.topTitle,
-              cursor: "pointer",
-              transition: "opacity 0.2s ease",
-            }}
-            onClick={() => navigate(`/novel/${slug}`)}
-            onMouseEnter={(e) => (e.target.style.opacity = 0.6)}
-            onMouseLeave={(e) => (e.target.style.opacity = 1)}
-          >
-            {novelTitle}
-          </span>
-        </div>
-
-        <div style={styles.content}>
-          <p style={styles.paragraph}>Chapter not found.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={styles.page}>
       <div style={styles.topBar}>
-        <button style={styles.backButton} onClick={() => navigate(`/novel/${slug}`)}>
+        <button style={styles.backButton} onClick={() => navigate("/novel")}>
           ‹
         </button>
-        <span style={styles.topTitle}>{novelTitle}</span>
+        <span style={styles.topTitle}>{chapter.novelTitle}</span>
       </div>
 
       <div style={styles.content}>
@@ -541,15 +470,12 @@ function Chapter() {
                                 : styles.packCoins
                             }
                           >
-                            {pack.coins}{" "}
-                            <span style={styles.coinsSmall}>Coins</span>
+                            {pack.coins} <span style={styles.coinsSmall}>Coins</span>
                           </div>
 
                           <div
                             style={
-                              isSelected
-                                ? styles.packPriceDark
-                                : styles.packPrice
+                              isSelected ? styles.packPriceDark : styles.packPrice
                             }
                           >
                             {pack.price}
@@ -613,7 +539,7 @@ function Chapter() {
                   style={styles.drawerCover}
                 />
                 <div>
-                  <div style={styles.drawerTitle}>{novelTitle}</div>
+                  <div style={styles.drawerTitle}>{chapter.novelTitle}</div>
                   <div style={styles.drawerMeta}>
                     <span style={styles.drawerCount}>
                       {chapters.length} Chapter
@@ -635,11 +561,8 @@ function Chapter() {
 
             <div style={styles.chapterList}>
               {chapters.map((chapterItem) => {
-                const isCurrent =
-                  chapterItem.chapter_number === chapterNumber;
-                const locked = !isChapterUnlocked(
-                  chapterItem.chapter_number
-                );
+                const isCurrent = chapterItem.id === chapterNumber;
+                const locked = !isChapterUnlocked(chapterItem.id);
 
                 return (
                   <button
@@ -653,7 +576,7 @@ function Chapter() {
                         ...(isCurrent ? styles.chapterRowActive : {}),
                       }}
                     >
-                      {chapterItem.chapter_number}. {chapterItem.title}
+                      {chapterItem.id}. {chapterItem.title}
                     </span>
 
                     {locked && !isCurrent && (
@@ -747,7 +670,7 @@ function Chapter() {
             <button style={styles.readingNowButton}>Reading Now</button>
             <button
               style={styles.homeLinkButton}
-              onClick={() => navigate(`/novel/${slug}`)}
+              onClick={() => navigate("/")}
             >
               Go to HomePage
             </button>

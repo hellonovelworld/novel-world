@@ -1,34 +1,92 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { supabase } from "./supabaseClient";
 
 function App() {
   const navigate = useNavigate();
+  const { slug } = useParams();
 
-  const catalogueText = `
-I checked my phone for the sixth time in twenty minutes. Six missed calls from Ryan, but not a single text explaining where he was. Around me, the Metro Denver Prenatal Clinic buzzed with life—expectant mothers nestled against their partners' shoulders, fingers intertwined, sharing whispered excitement about the images they would soon see. I sat alone, my wedding ring suddenly heavy on my finger.
-`;
+  const [novel, setNovel] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchNovel = async () => {
+      if (!slug) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("novels")
+        .select("*")
+        .eq("slug", slug)
+        .single();
+
+      if (error) {
+        console.error("Failed to fetch novel:", error);
+        setNovel(null);
+      } else {
+        setNovel(data);
+      }
+
+      setLoading(false);
+    };
+
+    fetchNovel();
+  }, [slug]);
+
+  if (loading) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.phoneFrame}>
+          <div style={styles.loadingWrap}>Loading novel...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!novel) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.phoneFrame}>
+          <div style={styles.loadingWrap}>Novel not found.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const title = novel.title || "Untitled Novel";
+  const author = novel.author || "Unknown Author";
+  const description = novel.description || "No description yet.";
+  const coverUrl = novel.cover_url || "/cover.jpg";
 
   return (
     <div style={styles.page}>
       <div style={styles.phoneFrame}>
         <div style={styles.heroSection}>
           <div style={styles.backgroundWrap}>
-            <div style={styles.backgroundImage}></div>
+            <div
+              style={{
+                ...styles.backgroundImage,
+                backgroundImage: `url("${coverUrl}")`,
+              }}
+            ></div>
             <div style={styles.backgroundOverlay}></div>
           </div>
 
           <button
-            onClick={() => window.history.back()}
+            onClick={() => navigate("/")}
             style={styles.backButton}
           >
             ‹
           </button>
 
           <div style={styles.heroContent}>
-            <img src="/cover.jpg" alt="Book cover" style={styles.cover} />
-            <h1 style={styles.title}>
-              Divorce After His Betrayal with the Nanny
-            </h1>
-            <p style={styles.author}>Completed | Jane Austen</p>
+            <img src={coverUrl} alt={title} style={styles.cover} />
+            <h1 style={styles.title}>{title}</h1>
+            <p style={styles.author}>Completed | {author}</p>
           </div>
         </div>
 
@@ -38,19 +96,7 @@ I checked my phone for the sixth time in twenty minutes. Six missed calls from R
             <div style={styles.quoteLine}></div>
           </div>
 
-          <p style={styles.previewParagraph}>
-            I checked my phone for the sixth time in twenty minutes. Six missed
-            calls from Ryan, but not a single text explaining where he was.
-            Around me, the Metro Denver Prenatal Clinic buzzed with
-            life—expectant mothers nestled against their partners&apos;
-            shoulders, fingers intertwined, sharing whispered excitement about
-            the images they would soon see. I sat alone, my wedding ring
-            suddenly heavy on my finger. My hand instinctively moved to my
-            rounded belly, feeling the slight flutter that had become familiar
-            these past few weeks. Twenty weeks. Halfway there. Today was our
-            anatomy scan—the day we&apos;d confirm our baby was developing
-            properly, maybe even learn if we were having a boy or girl.
-          </p>
+          <p style={styles.previewParagraph}>{description}</p>
 
           <div style={styles.quoteFooter}>”</div>
         </div>
@@ -58,12 +104,10 @@ I checked my phone for the sixth time in twenty minutes. Six missed calls from R
         <div style={styles.catalogueCard}>
           <div style={styles.catalogueHeader}>
             <div style={styles.catalogueTitle}>Catalogue</div>
-            <div style={styles.catalogueLatest}>
-              Latest chapter: Chapter 10 &gt;
-            </div>
+            <div style={styles.catalogueLatest}>Tap Start Reading &gt;</div>
           </div>
 
-          <p style={styles.catalogueParagraph}>{catalogueText}</p>
+          <p style={styles.catalogueParagraph}>{description}</p>
         </div>
 
         <div style={styles.bottomSpace}></div>
@@ -71,7 +115,7 @@ I checked my phone for the sixth time in twenty minutes. Six missed calls from R
         <div style={styles.stickyBar}>
           <button
             style={styles.stickyButton}
-            onClick={() => navigate("/chapter/1")}
+            onClick={() => navigate(`/novel/${slug}/chapter/1`)}
           >
             Start Reading
           </button>
@@ -99,6 +143,16 @@ const styles = {
       "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   },
 
+  loadingWrap: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "14px",
+    color: "#555",
+    background: "#fff",
+  },
+
   heroSection: {
     position: "relative",
     height: "330px",
@@ -114,7 +168,6 @@ const styles = {
   backgroundImage: {
     position: "absolute",
     inset: "-20px",
-    backgroundImage: 'url("/cover.jpg")',
     backgroundSize: "cover",
     backgroundPosition: "center",
     filter: "blur(22px)",
@@ -215,6 +268,7 @@ const styles = {
     lineHeight: "1.6",
     color: "#2a2a2a",
     textAlign: "left",
+    whiteSpace: "pre-line",
   },
 
   quoteFooter: {

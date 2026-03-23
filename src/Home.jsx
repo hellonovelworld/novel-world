@@ -1,62 +1,62 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "./supabaseClient";
 
 function Home() {
   const navigate = useNavigate();
+  const [novels, setNovels] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const topCovers = [
-    { title: "He Never Spoke To Me", img: "/cover.jpg" },
-    { title: "You Chose Her Over Me?", img: "/cover.jpg" },
-    { title: "Five Years of Workplace...", img: "/cover.jpg" },
-    { title: "Five Months Pregnant...", img: "/cover.jpg" },
-    { title: "After my boyfriend...", img: "/cover.jpg" },
-    { title: "My Billionaire Ex's True Love", img: "/cover.jpg" },
-    { title: "He Called Me Bed Buddy", img: "/cover.jpg" },
-  ];
+  useEffect(() => {
+    const fetchNovels = async () => {
+      setLoading(true);
 
-  const books = [
-    {
-      title: "He 'Saved' Her 7 Times in the Jungle",
-      author: "Bronte",
-      tags: ["Romance"],
-      desc: `My mercenary husband Jax spent a night in the jungle with his drugged teammate Selene...`,
-      img: "/cover.jpg",
-    },
-    {
-      title: "Time Never Said It Forgave",
-      author: "Allan Poe",
-      tags: ["Realistic", "Romance"],
-      desc: `Avery's POV "Mrs. Sterling, I've reviewed the supplementary clauses..."`,
-      img: "/cover.jpg",
-    },
-    {
-      title: "My Boyfriend's a Jerk? I'm Marrying a Billionaire!",
-      author: "Hemingway",
-      tags: ["Romance", "Realistic"],
-      desc: `After seven years of secretly dating my best friend's brother...`,
-      img: "/cover.jpg",
-    },
-  ];
+      const { data, error } = await supabase
+        .from("novels")
+        .select("*")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Failed to fetch novels:", error);
+        setNovels([]);
+      } else {
+        setNovels(data || []);
+      }
+
+      setLoading(false);
+    };
+
+    fetchNovels();
+  }, []);
+
+  const handleNovelClick = (slug) => {
+    navigate(`/novel/${slug}`);
+  };
+
+  const topNovels = novels.slice(0, 8);
+  const recommendNovels = novels;
 
   return (
     <div style={styles.page}>
       <div style={styles.phoneFrame}>
-
-        {/* Tabs */}
         <div style={styles.tabs}>
           <span style={styles.activeTab}>Hot</span>
           <span style={styles.tab}>New</span>
           <span style={styles.tab}>Playlet</span>
         </div>
 
-        {/* Search */}
         <div style={styles.searchBox}>
           <span style={styles.searchIcon}>⌕</span>
           <span style={styles.searchText}>Search for novel</span>
         </div>
 
-        {/* Banner */}
         <div style={styles.bannerWrap}>
-          <img src="/cover.jpg" alt="Banner" style={styles.banner} />
+          <img
+            src={topNovels[0]?.cover_url || "/cover.jpg"}
+            alt="Banner"
+            style={styles.banner}
+          />
           <div style={styles.bannerDots}>
             <span style={styles.dotActive}></span>
             <span style={styles.dot}></span>
@@ -64,58 +64,75 @@ function Home() {
           </div>
         </div>
 
-        {/* Horizontal Section */}
         <div style={styles.sectionTitle}>Edit Recommend</div>
 
         <div style={styles.horizontalList}>
-          {topCovers.map((item, index) => (
-            <div
-              key={index}
-              style={styles.horizontalCard}
-              onClick={() => navigate("/novel")}
-            >
-              <img src={item.img} alt={item.title} style={styles.horizontalCover} />
-              <div style={styles.horizontalText}>{item.title}</div>
-            </div>
-          ))}
+          {loading ? (
+            <div style={styles.loadingText}>Loading novels...</div>
+          ) : topNovels.length === 0 ? (
+            <div style={styles.loadingText}>No novels found.</div>
+          ) : (
+            topNovels.map((item) => (
+              <div
+                key={item.id}
+                style={styles.horizontalCard}
+                onClick={() => handleNovelClick(item.slug)}
+              >
+                <img
+                  src={item.cover_url || "/cover.jpg"}
+                  alt={item.title}
+                  style={styles.horizontalCover}
+                />
+                <div style={styles.horizontalText}>{item.title}</div>
+              </div>
+            ))
+          )}
         </div>
 
-        {/* Recommend */}
         <div style={styles.sectionTitle}>Recommend</div>
 
         <div style={styles.recommendList}>
-          {books.map((book, index) => (
-            <div
-              key={index}
-              style={styles.bookRow}
-              onClick={() => navigate("/novel")}
-            >
-              <img src={book.img} alt={book.title} style={styles.bookCover} />
+          {loading ? (
+            <div style={styles.loadingText}>Loading novels...</div>
+          ) : recommendNovels.length === 0 ? (
+            <div style={styles.loadingText}>No novels found.</div>
+          ) : (
+            recommendNovels.map((book) => (
+              <div
+                key={book.id}
+                style={styles.bookRow}
+                onClick={() => handleNovelClick(book.slug)}
+              >
+                <img
+                  src={book.cover_url || "/cover.jpg"}
+                  alt={book.title}
+                  style={styles.bookCover}
+                />
 
-              <div style={styles.bookContent}>
-                <div style={styles.bookTitle}>{book.title}</div>
-                <div style={styles.bookDesc}>{book.desc}</div>
-
-                <div style={styles.metaRow}>
-                  <div style={styles.authorRow}>
-                    <span style={styles.authorBadge}>M</span>
-                    <span style={styles.authorName}>{book.author}</span>
+                <div style={styles.bookContent}>
+                  <div style={styles.bookTitle}>{book.title}</div>
+                  <div style={styles.bookDesc}>
+                    {book.description || "No description yet."}
                   </div>
 
-                  {book.tags.map((tag, i) => (
-                    <span key={i} style={styles.tag}>
-                      {tag}
-                    </span>
-                  ))}
+                  <div style={styles.metaRow}>
+                    <div style={styles.authorRow}>
+                      <span style={styles.authorBadge}>M</span>
+                      <span style={styles.authorName}>
+                        {book.author || "Unknown Author"}
+                      </span>
+                    </div>
+
+                    <span style={styles.tag}>Novel</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
         <div style={styles.bottomSpacer}></div>
 
-        {/* Bottom Navigation */}
         <div style={styles.bottomNav}>
           <button style={styles.navItemActive} onClick={() => navigate("/")}>
             <div style={styles.navIconActive}>⌂</div>
@@ -132,14 +149,12 @@ function Home() {
             <div style={styles.navLabel}>My</div>
           </button>
         </div>
-
       </div>
     </div>
   );
 }
 
 const styles = {
-
   page: {
     width: "100%",
     minHeight: "100vh",
@@ -244,6 +259,7 @@ const styles = {
 
   horizontalCard: {
     minWidth: "90px",
+    cursor: "pointer",
   },
 
   horizontalCover: {
@@ -266,6 +282,7 @@ const styles = {
     display: "flex",
     gap: "10px",
     marginBottom: "14px",
+    cursor: "pointer",
   },
 
   bookCover: {
@@ -325,6 +342,12 @@ const styles = {
     background: "#e6f4f1",
     padding: "3px 8px",
     borderRadius: "4px",
+  },
+
+  loadingText: {
+    fontSize: "12px",
+    color: "#666",
+    padding: "8px 0",
   },
 
   bottomSpacer: {
