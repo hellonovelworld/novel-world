@@ -1,6 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "./supabaseClient";
+import BottomNav from "./BottomNav";
+
+function formatReaderCount(value) {
+  const num = Number(value);
+
+  if (!num || Number.isNaN(num)) return "0";
+
+  if (num >= 1000000) {
+    return `${(num / 1000000).toFixed(1)}m`;
+  }
+
+  if (num >= 1000) {
+    return `${(num / 1000).toFixed(1)}k`;
+  }
+
+  return String(num);
+}
 
 function Home() {
   const navigate = useNavigate();
@@ -38,30 +55,43 @@ function Home() {
   };
 
   const normalizedNovels = useMemo(() => {
-    return (novels || []).map((book, index) => ({
-      ...book,
-      rankScore:
+    return (novels || []).map((book, index) => {
+      const rankScore =
         typeof book.views === "number"
           ? book.views
           : typeof book.total_views === "number"
           ? book.total_views
-          : 1000 - index,
-      chapterCount:
-        book.chapter_count ||
-        book.total_chapters ||
-        book.chapters_count ||
-        null,
-      displayTag:
-        book.genre ||
-        book.category ||
-        (index % 4 === 0
-          ? "CEO"
-          : index % 4 === 1
-          ? "Romance"
-          : index % 4 === 2
-          ? "Revenge"
-          : "Werewolf"),
-    }));
+          : typeof book.reader_count === "number"
+          ? book.reader_count
+          : 1000 - index;
+
+      return {
+        ...book,
+        rankScore,
+        chapterCount:
+          book.chapter_count ||
+          book.total_chapters ||
+          book.chapters_count ||
+          null,
+        displayTag:
+          book.genre ||
+          book.category ||
+          (index % 4 === 0
+            ? "CEO"
+            : index % 4 === 1
+            ? "Romance"
+            : index % 4 === 2
+            ? "Revenge"
+            : "Werewolf"),
+        rating:
+          typeof book.rating === "number"
+            ? book.rating.toFixed(1)
+            : book.rating
+            ? Number(book.rating).toFixed(1)
+            : "4.8",
+        readerCountFormatted: formatReaderCount(book.reader_count || 0),
+      };
+    });
   }, [novels]);
 
   const filteredNovels = useMemo(() => {
@@ -144,9 +174,11 @@ function Home() {
           {loading ? (
             <>
               <div style={styles.heroSkeleton}></div>
+
               <div style={styles.sectionHeader}>
                 <div style={styles.sectionTitle}>Trending Now</div>
               </div>
+
               <div style={styles.horizontalList}>
                 {[...Array(4)].map((_, i) => (
                   <div key={i} style={styles.horizontalCard}>
@@ -160,6 +192,7 @@ function Home() {
               <div style={styles.sectionHeader}>
                 <div style={styles.sectionTitle}>For You</div>
               </div>
+
               {[...Array(4)].map((_, i) => (
                 <div key={i} style={styles.recommendSkeleton}></div>
               ))}
@@ -186,24 +219,36 @@ function Home() {
                   />
 
                   <div style={styles.heroOverlay}></div>
+                  <div style={styles.heroGlow}></div>
 
                   <div style={styles.heroContent}>
-                    <div style={styles.heroBadge}>Top Pick</div>
                     <div style={styles.heroTitle}>{featuredNovel.title}</div>
-                    <div style={styles.heroDesc}>
-                      {featuredNovel.description || "A story you won’t want to put down."}
-                    </div>
 
-                    <div style={styles.heroMetaRow}>
+                    <div style={styles.heroProofRow}>
                       <span style={styles.heroMetaChip}>
-                        {featuredNovel.displayTag || "Novel"}
+                        ⭐ {featuredNovel.rating}
                       </span>
                       <span style={styles.heroMetaChip}>
-                        {featuredNovel.author || "Unknown Author"}
+                        👀 {featuredNovel.readerCountFormatted} readers
                       </span>
                     </div>
 
-                    <button style={styles.readNowBtn}>Read Now</button>
+                    <div style={styles.heroHook}>
+                      {featuredNovel.description ||
+                        "Betrayed by the man she trusted most, she vanished without a trace. Now she’s back—stronger, colder, and ready to make them regret everything."}
+                    </div>
+
+                    <div style={styles.heroButtonRow}>
+                      <button
+                        style={styles.readNowBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleNovelClick(featuredNovel.slug);
+                        }}
+                      >
+                        🔥 Start Reading Free
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -291,30 +336,26 @@ function Home() {
                         {index < 3 && <div style={styles.hotLabel}>HOT</div>}
                       </div>
 
+                      <div style={styles.bookProofRow}>
+                        <span style={styles.bookProofChip}>
+                          ⭐ {book.rating}
+                        </span>
+                        <span style={styles.bookProofChip}>
+                          👀 {book.readerCountFormatted}
+                        </span>
+                      </div>
+
                       <div style={styles.bookDesc}>
-                        {book.description || "An addictive read full of twists, tension, and emotion."}
+                        {book.description ||
+                          "Rejected, betrayed, and left with nothing — now she’s back stronger than ever."}
                       </div>
 
-                      <div style={styles.infoRow}>
-                        <span style={styles.infoChip}>
-                          {book.displayTag || "Novel"}
+                      <div style={styles.bookBottomRow}>
+                        <span style={styles.bookTag}>
+                          {book.displayTag || "Romance"}
                         </span>
-                        <span style={styles.infoChip}>
-                          {book.chapterCount
-                            ? `${book.chapterCount} Chapters`
-                            : "Ongoing"}
-                        </span>
-                      </div>
 
-                      <div style={styles.metaRow}>
-                        <div style={styles.authorRow}>
-                          <span style={styles.authorBadge}>✦</span>
-                          <span style={styles.authorName}>
-                            {book.author || "Unknown Author"}
-                          </span>
-                        </div>
-
-                        <div style={styles.readMiniBtn}>Read</div>
+                        <div style={styles.readMiniBtn}>Start Reading Free</div>
                       </div>
                     </div>
                   </div>
@@ -326,22 +367,7 @@ function Home() {
 
         <div style={styles.bottomSpacer}></div>
 
-        <div style={styles.bottomNav}>
-          <button style={styles.navItemActive} onClick={() => navigate("/")}>
-            <div style={styles.navIconActive}>⌂</div>
-            <div style={styles.navLabelActive}>Home</div>
-          </button>
-
-          <button style={styles.navItem} onClick={() => navigate("/bookshelf")}>
-            <div style={styles.navIcon}>▭</div>
-            <div style={styles.navLabel}>Bookshelf</div>
-          </button>
-
-          <button style={styles.navItem} onClick={() => navigate("/my")}>
-            <div style={styles.navIcon}>◯</div>
-            <div style={styles.navLabel}>My</div>
-          </button>
-        </div>
+        <BottomNav active="home" />
       </div>
     </div>
   );
@@ -472,12 +498,12 @@ const styles = {
 
   heroCard: {
     position: "relative",
-    height: "220px",
-    borderRadius: "22px",
+    height: "290px",
+    borderRadius: "24px",
     overflow: "hidden",
     cursor: "pointer",
-    marginBottom: "16px",
-    boxShadow: "0 18px 40px rgba(16,24,40,0.16)",
+    marginBottom: "18px",
+    boxShadow: "0 22px 48px rgba(16,24,40,0.18)",
   },
 
   heroImage: {
@@ -491,7 +517,15 @@ const styles = {
     position: "absolute",
     inset: 0,
     background:
-      "linear-gradient(180deg, rgba(10,10,10,0.05) 0%, rgba(10,10,10,0.70) 100%)",
+      "linear-gradient(180deg, rgba(8,10,18,0.10) 0%, rgba(8,10,18,0.42) 42%, rgba(8,10,18,0.84) 100%)",
+  },
+
+  heroGlow: {
+    position: "absolute",
+    inset: 0,
+    background:
+      "radial-gradient(circle at top right, rgba(255,122,89,0.22) 0%, transparent 35%)",
+    pointerEvents: "none",
   },
 
   heroContent: {
@@ -502,41 +536,36 @@ const styles = {
     color: "#fff",
   },
 
-  heroBadge: {
-    display: "inline-block",
-    fontSize: "11px",
-    fontWeight: "800",
-    background: "rgba(255,255,255,0.18)",
-    backdropFilter: "blur(8px)",
-    padding: "6px 10px",
-    borderRadius: "999px",
-    marginBottom: "10px",
-  },
-
   heroTitle: {
-    fontSize: "22px",
-    lineHeight: 1.1,
+    fontSize: "24px",
+    lineHeight: 1.06,
     fontWeight: "800",
-    marginBottom: "8px",
-    textShadow: "0 2px 10px rgba(0,0,0,0.28)",
-  },
-
-  heroDesc: {
-    fontSize: "12px",
-    lineHeight: 1.45,
-    color: "rgba(255,255,255,0.88)",
     marginBottom: "10px",
+    letterSpacing: "-0.5px",
+    textShadow: "0 3px 14px rgba(0,0,0,0.28)",
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
     overflow: "hidden",
   },
 
-  heroMetaRow: {
+  heroProofRow: {
     display: "flex",
     gap: "8px",
     flexWrap: "wrap",
-    marginBottom: "12px",
+    marginBottom: "10px",
+  },
+
+  heroHook: {
+    fontSize: "13px",
+    lineHeight: 1.5,
+    color: "rgba(255,255,255,0.92)",
+    marginBottom: "10px",
+    display: "-webkit-box",
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+    textShadow: "0 2px 10px rgba(0,0,0,0.24)",
   },
 
   heroMetaChip: {
@@ -545,17 +574,25 @@ const styles = {
     padding: "6px 10px",
     borderRadius: "999px",
     backdropFilter: "blur(8px)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  },
+
+  heroButtonRow: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
   },
 
   readNowBtn: {
     border: "none",
     background: "#ffffff",
     color: "#111827",
-    padding: "10px 16px",
+    padding: "11px 16px",
     borderRadius: "999px",
     fontWeight: "800",
     fontSize: "13px",
     cursor: "pointer",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.14)",
   },
 
   continueCard: {
@@ -717,23 +754,58 @@ const styles = {
     marginBottom: "14px",
     cursor: "pointer",
     padding: "12px",
-    borderRadius: "18px",
+    borderRadius: "20px",
     background: "#ffffff",
     border: "1px solid #eff2f6",
-    boxShadow: "0 8px 24px rgba(17,24,39,0.05)",
+    boxShadow: "0 10px 26px rgba(17,24,39,0.06)",
   },
 
   bookCover: {
-    width: "72px",
-    height: "102px",
-    borderRadius: "12px",
+    width: "78px",
+    height: "112px",
+    borderRadius: "14px",
     objectFit: "cover",
     flexShrink: 0,
+    boxShadow: "0 10px 20px rgba(17,24,39,0.10)",
   },
 
   bookContent: {
     flex: 1,
     minWidth: 0,
+  },
+
+  bookProofRow: {
+    display: "flex",
+    gap: "6px",
+    flexWrap: "wrap",
+    marginBottom: "8px",
+  },
+
+  bookProofChip: {
+    fontSize: "10px",
+    fontWeight: "800",
+    color: "#5e6575",
+    background: "#f4f6fa",
+    padding: "5px 8px",
+    borderRadius: "999px",
+    border: "1px solid #e9edf4",
+  },
+
+  bookBottomRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "8px",
+  },
+
+  bookTag: {
+    fontSize: "11px",
+    color: "#ff6b3d",
+    fontWeight: "800",
+    background: "#fff3ee",
+    border: "1px solid #ffd9cf",
+    padding: "6px 10px",
+    borderRadius: "999px",
   },
 
   bookTopRow: {
@@ -745,11 +817,15 @@ const styles = {
   },
 
   bookTitle: {
-    fontSize: "15px",
+    fontSize: "16px",
     fontWeight: "800",
     color: "#111827",
-    lineHeight: 1.25,
+    lineHeight: 1.2,
     flex: 1,
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
 
   hotLabel: {
@@ -766,63 +842,12 @@ const styles = {
   bookDesc: {
     fontSize: "12px",
     color: "#6f7788",
-    lineHeight: 1.45,
-    marginBottom: "8px",
+    lineHeight: 1.5,
+    marginBottom: "10px",
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
     overflow: "hidden",
-  },
-
-  infoRow: {
-    display: "flex",
-    gap: "8px",
-    flexWrap: "wrap",
-    marginBottom: "8px",
-  },
-
-  infoChip: {
-    fontSize: "11px",
-    color: "#5d6475",
-    background: "#f4f6fa",
-    padding: "6px 10px",
-    borderRadius: "999px",
-    fontWeight: "700",
-  },
-
-  metaRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "8px",
-  },
-
-  authorRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    minWidth: 0,
-  },
-
-  authorBadge: {
-    width: "18px",
-    height: "18px",
-    borderRadius: "50%",
-    background: "#ffe9e2",
-    color: "#ff6b3d",
-    fontSize: "10px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-
-  authorName: {
-    fontSize: "11px",
-    color: "#777f91",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
   },
 
   readMiniBtn: {
@@ -830,9 +855,10 @@ const styles = {
     fontWeight: "800",
     color: "#ffffff",
     background: "linear-gradient(135deg, #111827 0%, #2b3240 100%)",
-    padding: "8px 12px",
+    padding: "9px 13px",
     borderRadius: "999px",
     flexShrink: 0,
+    boxShadow: "0 8px 18px rgba(17,24,39,0.12)",
   },
 
   emptyState: {
@@ -859,10 +885,10 @@ const styles = {
   },
 
   heroSkeleton: {
-    height: "220px",
-    borderRadius: "22px",
+    height: "290px",
+    borderRadius: "24px",
     background: "linear-gradient(90deg, #f3f4f7 25%, #eceef3 50%, #f3f4f7 75%)",
-    marginBottom: "16px",
+    marginBottom: "18px",
   },
 
   horizontalSkeletonCover: {
@@ -895,8 +921,8 @@ const styles = {
     marginBottom: "14px",
   },
 
-  bottomSpacer: {
-    height: "86px",
+  bottomSpace: {
+    height: "70px",
   },
 
   bottomNav: {
@@ -906,54 +932,43 @@ const styles = {
     transform: "translateX(-50%)",
     width: "100%",
     maxWidth: "430px",
-    height: "70px",
-    background: "rgba(255,255,255,0.96)",
-    backdropFilter: "blur(14px)",
-    borderTop: "1px solid #eceff4",
+    height: "60px",
+    background: "#fff",
+    borderTop: "1px solid #eee",
     display: "flex",
     justifyContent: "space-around",
     alignItems: "center",
-    zIndex: 50,
   },
 
   navItem: {
     border: "none",
     background: "transparent",
-    textAlign: "center",
-    color: "#a0a7b8",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    color: "#bbb",
     fontSize: "10px",
-    cursor: "pointer",
   },
 
   navItemActive: {
     border: "none",
     background: "transparent",
-    textAlign: "center",
-    color: "#111827",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    color: "#111",
     fontSize: "10px",
-    cursor: "pointer",
-  },
-
-  navIcon: {
-    fontSize: "22px",
-    marginBottom: "4px",
-    color: "#a0a7b8",
-  },
-
-  navIconActive: {
-    fontSize: "22px",
-    marginBottom: "4px",
-    color: "#111827",
   },
 
   navLabel: {
-    color: "#a0a7b8",
-    fontWeight: "600",
+    color: "#bbb",
+    fontSize: "10px",
   },
 
   navLabelActive: {
-    color: "#111827",
-    fontWeight: "800",
+    color: "#111",
+    fontSize: "10px",
+    fontWeight: "600",
   },
 };
 
