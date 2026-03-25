@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
-
+import { List, Settings, Moon, Sun, Bookmark } from "lucide-react";
 
 function Chapter() {
   const { slug, id } = useParams();
@@ -10,6 +10,9 @@ function Chapter() {
   const [showCatalogue, setShowCatalogue] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showRecommend, setShowRecommend] = useState(false);
+  const [recommendedNovel, setRecommendedNovel] = useState(null);
+  const [recommendLoading, setRecommendLoading] = useState(false);
+
   const [coins, setCoins] = useState(0);
   const [unlockedChapters, setUnlockedChapters] = useState([]);
   const [selectedPackKey, setSelectedPackKey] = useState(null);
@@ -22,6 +25,13 @@ function Chapter() {
   const [novelTitle, setNovelTitle] = useState(
     "At My Mother’s Funeral, My Husband Chose His Mistress—So I Took Everything"
   );
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [showBottomMenu, setShowBottomMenu] = useState(false);
+
+  const [fontSize, setFontSize] = useState(15);
+  const [isNightMode, setIsNightMode] = useState(false);
+  const [bookmarks, setBookmarks] = useState({});
 
   const chapterNumber = Number(id) || 1;
   const lastChapter = chapters.length;
@@ -80,6 +90,49 @@ function Chapter() {
 
   const chapter =
     chapters.find((c) => c.chapter_number === chapterNumber) || chapters[0];
+
+  const theme = useMemo(() => {
+    return isNightMode
+      ? {
+          pageBg: "#111111",
+          surfaceBg: "#181818",
+          topBarBg: "#181818",
+          cardBg: "#1f1f1f",
+          text: "#f5f5f5",
+          subText: "#bbbbbb",
+          border: "#2a2a2a",
+          navBg: "#222222",
+          navText: "#f5f5f5",
+          fade:
+            "linear-gradient(to bottom, rgba(24,24,24,0), rgba(24,24,24,1))",
+          modalBg: "#1e1e1e",
+          excerptBg: "#252525",
+          drawerBg: "#161616",
+          drawerOverlay: "rgba(0,0,0,0.55)",
+        }
+      : {
+          pageBg: "#ffffff",
+          surfaceBg: "#fafafa",
+          topBarBg: "#fafafa",
+          cardBg: "#fafafa",
+          text: "#333333",
+          subText: "#666666",
+          border: "#dddddd",
+          navBg: "#f5f5f5",
+          navText: "#333333",
+          fade:
+            "linear-gradient(to bottom, rgba(250,250,250,0), rgba(250,250,250,1))",
+          modalBg: "#ffffff",
+          excerptBg: "#f6f6f6",
+          drawerBg: "#ffffff",
+          drawerOverlay: "rgba(0,0,0,0.45)",
+        };
+  }, [isNightMode]);
+
+  useEffect(() => {
+    setShowBottomMenu(false);
+    setShowSettings(false);
+  }, [chapterNumber, slug]);
 
   useEffect(() => {
     const initUserAndLoadData = async () => {
@@ -223,6 +276,39 @@ function Chapter() {
     fetchChapters();
   }, [novelId]);
 
+  useEffect(() => {
+    const fetchRecommendedNovel = async () => {
+      if (!slug) return;
+
+      setRecommendLoading(true);
+
+      const { data, error } = await supabase
+        .from("novels")
+        .select("id, slug, title, author, description, cover_url, is_active")
+        .eq("is_active", true)
+        .neq("slug", slug)
+        .limit(6);
+
+      if (error) {
+        console.error("Failed to fetch recommended novels:", error);
+        setRecommendedNovel(null);
+        setRecommendLoading(false);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const randomIndex = Math.floor(Math.random() * data.length);
+        setRecommendedNovel(data[randomIndex]);
+      } else {
+        setRecommendedNovel(null);
+      }
+
+      setRecommendLoading(false);
+    };
+
+    fetchRecommendedNovel();
+  }, [slug]);
+
   const isLastChapter = chapterNumber === lastChapter;
   const unlockPrice = Number(chapter?.coin_price || 0);
 
@@ -239,6 +325,73 @@ function Chapter() {
   };
 
   const isLockedChapter = !isChapterUnlocked(chapterNumber);
+
+  const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
+
+  const paragraphs = (chapter?.content || "")
+    .split("\n\n")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+
+  const bookmarkKey = `${slug}-${chapterNumber}`;
+  const isBookmarked = !!bookmarks[bookmarkKey];
+
+  const recommendedCover =
+    recommendedNovel?.cover_url && recommendedNovel.cover_url.trim() !== ""
+      ? recommendedNovel.cover_url
+      : "/cover.jpg";
+
+  const decreaseFont = () => {
+    setFontSize((prev) => Math.max(13, prev - 1));
+  };
+
+  const increaseFont = () => {
+    setFontSize((prev) => Math.min(24, prev + 1));
+  };
+
+  const handleToggleBookmark = () => {
+    setBookmarks((prev) => {
+      const next = { ...prev };
+
+      if (next[bookmarkKey]) {
+        delete next[bookmarkKey];
+      } else {
+        next[bookmarkKey] = {
+          slug,
+          chapterNumber,
+          title: chapter?.title || `Chapter ${chapterNumber}`,
+          novelTitle,
+          savedAt: new Date().toISOString(),
+        };
+      }
+
+      return next;
+    });
+  };
+
+  const handleOpenContents = () => {
+    setShowBottomMenu(false);
+    setShowSettings(false);
+    setShowCatalogue(true);
+  };
+
+  const handleOpenSettings = () => {
+    setShowSettings((prev) => !prev);
+  };
+
+  const handleToggleTheme = () => {
+    setIsNightMode((prev) => !prev);
+  };
+
+  const handleReaderTap = () => {
+    if (showCatalogue || showModal || showRecommend) return;
+
+    setShowBottomMenu((prev) => {
+      const next = !prev;
+      if (!next) setShowSettings(false);
+      return next;
+    });
+  };
 
   const handlePrev = () => {
     if (chapterNumber <= 1) {
@@ -354,34 +507,43 @@ function Chapter() {
   const handleChapterClick = (chapterItem) => {
     navigate(`/novel/${slug}/chapter/${chapterItem.chapter_number}`);
     setShowCatalogue(false);
+    setShowBottomMenu(false);
+    setShowSettings(false);
   };
-
-  const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
-
-  const paragraphs = (chapter?.content || "")
-    .split("\n\n")
-    .map((p) => p.trim())
-    .filter((p) => p !== "");
 
   if (chaptersLoading) {
     return (
-      <div style={styles.page}>
-        <div style={styles.topBar}>
+      <div
+        style={{ ...styles.page, background: theme.pageBg, color: theme.text }}
+      >
+        <div
+          style={{
+            ...styles.topBar,
+            background: theme.topBarBg,
+            borderBottom: `1px solid ${theme.border}`,
+          }}
+        >
           <button
-            style={styles.backButton}
-            onClick={() =>
-              navigate(
-                `/novel/${slug}`
-              )
-            }
+            style={{ ...styles.backButton, color: theme.text }}
+            onClick={() => navigate(`/novel/${slug}`)}
           >
             ‹
           </button>
-          <span style={styles.topTitle}>{novelTitle}</span>
+          <span style={{ ...styles.topTitle, color: theme.text }}>
+            {novelTitle}
+          </span>
         </div>
 
-        <div style={styles.content}>
-          <p style={styles.paragraph}>Loading chapters...</p>
+        <div style={{ ...styles.content, background: theme.surfaceBg }}>
+          <p
+            style={{
+              ...styles.paragraph,
+              color: theme.text,
+              fontSize: `${fontSize}px`,
+            }}
+          >
+            Loading chapters...
+          </p>
         </div>
       </div>
     );
@@ -389,15 +551,27 @@ function Chapter() {
 
   if (!chapter) {
     return (
-      <div style={styles.page}>
-        <div style={styles.topBar}>
-          <button style={styles.backButton} onClick={() => navigate(`/novel/${slug}`)}>
+      <div
+        style={{ ...styles.page, background: theme.pageBg, color: theme.text }}
+      >
+        <div
+          style={{
+            ...styles.topBar,
+            background: theme.topBarBg,
+            borderBottom: `1px solid ${theme.border}`,
+          }}
+        >
+          <button
+            style={{ ...styles.backButton, color: theme.text }}
+            onClick={() => navigate(`/novel/${slug}`)}
+          >
             ‹
           </button>
 
           <span
             style={{
               ...styles.topTitle,
+              color: theme.text,
               cursor: "pointer",
               transition: "opacity 0.2s ease",
             }}
@@ -409,60 +583,133 @@ function Chapter() {
           </span>
         </div>
 
-        <div style={styles.content}>
-          <p style={styles.paragraph}>Chapter not found.</p>
+        <div style={{ ...styles.content, background: theme.surfaceBg }}>
+          <p
+            style={{
+              ...styles.paragraph,
+              color: theme.text,
+              fontSize: `${fontSize}px`,
+            }}
+          >
+            Chapter not found.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.topBar}>
-        <button style={styles.backButton} onClick={() => navigate(`/novel/${slug}`)}>
+    <div style={{ ...styles.page, background: theme.pageBg, color: theme.text }}>
+      <div
+        style={{
+          ...styles.topBar,
+          background: theme.topBarBg,
+          borderBottom: `1px solid ${theme.border}`,
+        }}
+      >
+        <button
+          style={{ ...styles.backButton, color: theme.text }}
+          onClick={() => navigate(`/novel/${slug}`)}
+        >
           ‹
         </button>
-        <span style={styles.topTitle}>{novelTitle}</span>
+        <span style={{ ...styles.topTitle, color: theme.text }}>
+          {novelTitle}
+        </span>
       </div>
 
-      <div style={styles.content}>
+      <div
+        style={{
+          ...styles.content,
+          background: theme.surfaceBg,
+          paddingBottom: showBottomMenu ? "110px" : "40px",
+        }}
+        onClick={handleReaderTap}
+      >
         {isVip && (
           <div style={styles.vipActiveBanner}>
             VIP Active · Unlimited Access
           </div>
         )}
 
-        <h1 style={styles.chapterTitle}>{chapter.title}</h1>
+        <h1
+          style={{
+            ...styles.chapterTitle,
+            color: theme.text,
+          }}
+        >
+          {chapter.title}
+        </h1>
 
         {!isLockedChapter ? (
           paragraphs.map((p, i) => (
-            <p key={i} style={styles.paragraph}>
+            <p
+              key={i}
+              style={{
+                ...styles.paragraph,
+                fontSize: `${fontSize}px`,
+                color: theme.text,
+              }}
+            >
               {p}
             </p>
           ))
         ) : (
           <>
             {paragraphs.slice(0, 2).map((p, i) => (
-              <p key={i} style={styles.paragraph}>
+              <p
+                key={i}
+                style={{
+                  ...styles.paragraph,
+                  fontSize: `${fontSize}px`,
+                  color: theme.text,
+                }}
+              >
                 {p}
               </p>
             ))}
 
-            <div style={styles.fadeOverlay}></div>
+            <div
+              style={{
+                ...styles.fadeOverlay,
+                background: theme.fade,
+              }}
+            ></div>
 
-            <div style={styles.paywallCard}>
-              <h2 style={styles.paywallTitle}>Unlock Chapters</h2>
+            <div
+              style={{
+                ...styles.paywallCard,
+                background: theme.cardBg,
+                border: `1px solid ${theme.border}`,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 style={{ ...styles.paywallTitle, color: theme.text }}>
+                Unlock Chapters
+              </h2>
 
-              <div style={styles.priceLabel}>Unlock Price</div>
-              <div style={styles.bigPrice}>{unlockPrice}</div>
-              <div style={styles.priceSub}>Coins or Bonus</div>
+              <div style={{ ...styles.priceLabel, color: theme.subText }}>
+                Unlock Price
+              </div>
+              <div style={{ ...styles.bigPrice, color: theme.text }}>
+                {unlockPrice}
+              </div>
+              <div style={{ ...styles.priceSub, color: theme.subText }}>
+                Coins or Bonus
+              </div>
 
-              <div style={styles.walletRow}>
+              <div style={{ ...styles.walletRow, color: theme.subText }}>
                 <span>My Wallet</span>
                 <span>{coins} Coins&nbsp;&nbsp;0 Bonus</span>
               </div>
 
-              <button style={styles.unlockNowButton} onClick={handleUnlockNow}>
+              <button
+                style={styles.unlockNowButton}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleUnlockNow();
+                }}
+              >
                 Unlock Now
               </button>
 
@@ -474,7 +721,8 @@ function Chapter() {
                     <button
                       key={pack.key}
                       type="button"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setSelectedPackKey(pack.key);
 
                         setTimeout(() => {
@@ -563,7 +811,10 @@ function Chapter() {
 
               <button
                 style={styles.payNowButton}
-                onClick={handlePayNow}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePayNow();
+                }}
                 disabled={paypalLoading}
               >
                 {paypalLoading ? "Redirecting to PayPal..." : "PAY NOW"}
@@ -572,39 +823,235 @@ function Chapter() {
           </>
         )}
 
-        <div style={styles.navButtons}>
-          <button style={styles.navButton} onClick={handlePrev}>
+        <div style={styles.navButtons} onClick={(e) => e.stopPropagation()}>
+          <button
+            style={{
+              ...styles.navButton,
+              background: theme.navBg,
+              color: theme.navText,
+              border: `1px solid ${theme.border}`,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePrev();
+            }}
+          >
             Prev
           </button>
 
           <button
-            style={styles.navButton}
-            onClick={() => setShowCatalogue(true)}
+            style={{
+              ...styles.centerMenuButton,
+              background: theme.navBg,
+              color: theme.navText,
+              border: `1px solid ${theme.border}`,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowBottomMenu((prev) => {
+                const next = !prev;
+                if (!next) setShowSettings(false);
+                return next;
+              });
+            }}
           >
-            Catalogue
+            <List size={22} strokeWidth={2} />
           </button>
 
           {isLastChapter ? (
             <button
-              style={styles.navButton}
-              onClick={() => setShowRecommend(true)}
+              style={{
+                ...styles.navButton,
+                background: theme.navBg,
+                color: theme.navText,
+                border: `1px solid ${theme.border}`,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowRecommend(true);
+              }}
             >
               Recommend
             </button>
           ) : (
-            <button style={styles.navButton} onClick={handleNext}>
+            <button
+              style={{
+                ...styles.navButton,
+                background: theme.navBg,
+                color: theme.navText,
+                border: `1px solid ${theme.border}`,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNext();
+              }}
+            >
               Next
             </button>
           )}
         </div>
       </div>
 
+      {showSettings && showBottomMenu && (
+        <div
+          style={{
+            ...styles.floatingSettingsPopup,
+            background: theme.modalBg,
+            border: `1px solid ${theme.border}`,
+            color: theme.text,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={styles.settingsPopupRow}>
+            <span style={{ ...styles.settingsLabel, color: theme.text }}>
+              Text Size
+            </span>
+
+            <div style={styles.settingsActions}>
+              <button
+                style={{
+                  ...styles.settingsActionButton,
+                  background: theme.navBg,
+                  color: theme.navText,
+                  border: `1px solid ${theme.border}`,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  decreaseFont();
+                }}
+              >
+                A-
+              </button>
+
+              <span style={{ ...styles.fontSizeValue, color: theme.text }}>
+                {fontSize}px
+              </span>
+
+              <button
+                style={{
+                  ...styles.settingsActionButton,
+                  background: theme.navBg,
+                  color: theme.navText,
+                  border: `1px solid ${theme.border}`,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  increaseFont();
+                }}
+              >
+                A+
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBottomMenu && (
+        <div
+          style={{
+            ...styles.readerBottomMenu,
+            background: theme.surfaceBg,
+            borderTop: `1px solid ${theme.border}`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            style={styles.readerMenuItem}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenContents();
+            }}
+          >
+            <div style={{ ...styles.readerMenuIcon, color: theme.text }}>
+              <List size={22} strokeWidth={2} />
+            </div>
+            <div style={{ ...styles.readerMenuLabel, color: theme.text }}>
+              Contents
+            </div>
+          </button>
+
+          <button
+            style={styles.readerMenuItem}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenSettings();
+            }}
+          >
+            <div style={{ ...styles.readerMenuIcon, color: theme.text }}>
+              <Settings size={22} strokeWidth={2} />
+            </div>
+            <div style={{ ...styles.readerMenuLabel, color: theme.text }}>
+              Settings
+            </div>
+          </button>
+
+          <button
+            style={styles.readerMenuItem}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleTheme();
+            }}
+          >
+            <div style={{ ...styles.readerMenuIcon, color: theme.text }}>
+              {isNightMode ? (
+                <Sun size={22} strokeWidth={2} />
+              ) : (
+                <Moon size={22} strokeWidth={2} />
+              )}
+            </div>
+
+            <div style={{ ...styles.readerMenuLabel, color: theme.text }}>
+              {isNightMode ? "Light" : "Night"}
+            </div>
+          </button>
+
+          <button
+            style={styles.readerMenuItem}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleBookmark();
+            }}
+          >
+            <div
+              style={{
+                ...styles.readerMenuIcon,
+                color: isBookmarked ? "#fbbf24" : theme.subText,
+              }}
+            >
+              <Bookmark
+                size={22}
+                strokeWidth={2}
+                fill={isBookmarked ? "#fbbf24" : "none"}
+              />
+            </div>
+            <div
+              style={{
+                ...styles.readerMenuLabel,
+                color: isBookmarked ? "#fbbf24" : theme.text,
+              }}
+            >
+              {isBookmarked ? "Saved" : "Bookmark"}
+            </div>
+          </button>
+        </div>
+      )}
+
       {showCatalogue && (
         <div
-          style={styles.drawerOverlay}
+          style={{
+            ...styles.drawerOverlay,
+            background: theme.drawerOverlay,
+          }}
           onClick={() => setShowCatalogue(false)}
         >
-          <div style={styles.drawer} onClick={(e) => e.stopPropagation()}>
+          <div
+            style={{
+              ...styles.drawer,
+              background: theme.drawerBg,
+              color: theme.text,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={styles.drawerHeader}>
               <div style={styles.drawerBookInfo}>
                 <img
@@ -613,33 +1060,41 @@ function Chapter() {
                   style={styles.drawerCover}
                 />
                 <div>
-                  <div style={styles.drawerTitle}>{novelTitle}</div>
+                  <div style={{ ...styles.drawerTitle, color: theme.text }}>
+                    {novelTitle}
+                  </div>
                   <div style={styles.drawerMeta}>
-                    <span style={styles.drawerCount}>
+                    <span style={{ ...styles.drawerCount, color: theme.text }}>
                       {chapters.length} Chapter
                     </span>
-                    <span style={styles.drawerStatus}>Complete</span>
+                    <span
+                      style={{ ...styles.drawerStatus, color: theme.subText }}
+                    >
+                      Complete
+                    </span>
                   </div>
                 </div>
               </div>
 
               <button
-                style={styles.drawerClose}
+                style={{ ...styles.drawerClose, color: theme.text }}
                 onClick={() => setShowCatalogue(false)}
               >
                 ☰
               </button>
             </div>
 
-            <div style={styles.drawerDivider}></div>
+            <div
+              style={{
+                ...styles.drawerDivider,
+                borderTop: `1px solid ${theme.border}`,
+              }}
+            ></div>
 
             <div style={styles.chapterList}>
               {chapters.map((chapterItem) => {
-                const isCurrent =
-                  chapterItem.chapter_number === chapterNumber;
-                const locked = !isChapterUnlocked(
-                  chapterItem.chapter_number
-                );
+                const isCurrent = chapterItem.chapter_number === chapterNumber;
+                const locked = !isChapterUnlocked(chapterItem.chapter_number);
 
                 return (
                   <button
@@ -650,6 +1105,7 @@ function Chapter() {
                     <span
                       style={{
                         ...styles.chapterRowText,
+                        color: isCurrent ? "#ff4b68" : theme.text,
                         ...(isCurrent ? styles.chapterRowActive : {}),
                       }}
                     >
@@ -669,16 +1125,30 @@ function Chapter() {
 
       {showModal && !isVip && (
         <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Unlock Chapter {chapterNumber}</h3>
-            <p style={styles.modalText}>
+          <div
+            style={{
+              ...styles.modalCard,
+              background: theme.modalBg,
+              color: theme.text,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ ...styles.modalTitle, color: theme.text }}>
+              Unlock Chapter {chapterNumber}
+            </h3>
+            <p style={{ ...styles.modalText, color: theme.subText }}>
               You need {unlockPrice} coins to unlock this chapter. Your wallet
               currently has {coins} coins. Recharge first to continue.
             </p>
 
             <div style={styles.modalButtons}>
               <button
-                style={styles.modalCancel}
+                style={{
+                  ...styles.modalCancel,
+                  background: theme.navBg,
+                  color: theme.navText,
+                  border: `1px solid ${theme.border}`,
+                }}
                 onClick={() => setShowModal(false)}
               >
                 Cancel
@@ -701,56 +1171,121 @@ function Chapter() {
           style={styles.recommendOverlay}
           onClick={() => setShowRecommend(false)}
         >
-          <div style={styles.recommendCard} onClick={(e) => e.stopPropagation()}>
+          <div
+            style={{
+              ...styles.recommendCard,
+              background: theme.modalBg,
+              color: theme.text,
+              border: `1px solid ${theme.border}`,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
-              style={styles.recommendClose}
+              style={{ ...styles.recommendClose, color: theme.subText }}
               onClick={() => setShowRecommend(false)}
             >
               ×
             </button>
 
-            <div style={styles.recommendTop}>
-              <img
-                src="/cover.jpg"
-                alt="Left novel"
-                style={styles.recommendSideCover}
-              />
-              <div style={styles.recommendCenterLogo}>M</div>
-              <img
-                src="/cover.jpg"
-                alt="Right novel"
-                style={styles.recommendSideCover}
-              />
-            </div>
+            {recommendLoading ? (
+              <>
+                <div style={styles.recommendHero}>
+                  <div style={styles.recommendGlow}></div>
+                </div>
 
-            <h3 style={styles.recommendTitle}>
-              His Assistant Tortured My “Mother”
-            </h3>
+                <h3 style={{ ...styles.recommendTitle, color: theme.text }}>
+                  Loading recommendation...
+                </h3>
+              </>
+            ) : recommendedNovel ? (
+              <>
+                <div style={styles.recommendHero}>
+                  <div style={styles.recommendGlow}></div>
 
-            <div style={styles.recommendMetaRow}>
-              <div style={styles.recommendApp}>
-                <span style={styles.recommendDot}>M</span>
-                <span>Poe</span>
-              </div>
+                  <img
+                    src={recommendedCover}
+                    alt={recommendedNovel.title}
+                    style={styles.recommendMainCover}
+                  />
+                </div>
 
-              <div style={styles.recommendTag}>Romance/Realistic</div>
+                <h3 style={{ ...styles.recommendTitle, color: theme.text }}>
+                  {recommendedNovel.title}
+                </h3>
 
-              <div style={styles.recommendLikes}>♥ 548</div>
-            </div>
+                <div style={styles.recommendMetaRow}>
+                  <div style={styles.recommendApp}>
+                    <span style={styles.recommendDot}>M</span>
+                    <span style={{ color: theme.subText }}>
+                      {recommendedNovel.author || "Novel World"}
+                    </span>
+                  </div>
+                </div>
 
-            <div style={styles.recommendExcerpt}>
-              It was Daniel Harper&apos;s mother&apos;s fiftieth birthday, and
-              his female assistant, Tiffany, suddenly sent me a picture. The
-              photo showed Daniel&apos;s mother locked in a dog cage...
-            </div>
+                <div
+                  style={{
+                    ...styles.recommendExcerpt,
+                    background: theme.excerptBg,
+                    color: theme.text,
+                    border: `1px solid ${theme.border}`,
+                  }}
+                >
+                  {recommendedNovel.description ||
+                    "Discover another gripping story waiting for you."}
+                </div>
 
-            <button style={styles.readingNowButton}>Reading Now</button>
-            <button
-              style={styles.homeLinkButton}
-              onClick={() => navigate(`/novel/${slug}`)}
-            >
-              Go to HomePage
-            </button>
+                <button
+                  style={styles.readingNowButton}
+                  onClick={() => {
+                    setShowRecommend(false);
+                    navigate(`/novel/${recommendedNovel.slug}`);
+                  }}
+                >
+                  Reading Now
+                </button>
+
+                <button
+                  style={styles.homeLinkButton}
+                  onClick={() => {
+                    setShowRecommend(false);
+                    navigate(`/novel/${slug}`);
+                  }}
+                >
+                  Go to HomePage
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={styles.recommendHero}>
+                  <div style={styles.recommendGlow}></div>
+                </div>
+
+                <h3 style={{ ...styles.recommendTitle, color: theme.text }}>
+                  No recommendation available
+                </h3>
+
+                <div
+                  style={{
+                    ...styles.recommendExcerpt,
+                    background: theme.excerptBg,
+                    color: theme.text,
+                    border: `1px solid ${theme.border}`,
+                  }}
+                >
+                  We couldn’t find another active novel to recommend right now.
+                </div>
+
+                <button
+                  style={styles.homeLinkButton}
+                  onClick={() => {
+                    setShowRecommend(false);
+                    navigate(`/novel/${slug}`);
+                  }}
+                >
+                  Go to HomePage
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -806,6 +1341,55 @@ const styles = {
     background: "#fafafa",
     boxSizing: "border-box",
     position: "relative",
+  },
+
+  settingsLabel: {
+    fontSize: "13px",
+    fontWeight: "700",
+  },
+
+  settingsActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+
+  settingsActionButton: {
+    minWidth: "42px",
+    height: "34px",
+    borderRadius: "18px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: "700",
+  },
+
+  fontSizeValue: {
+    fontSize: "13px",
+    fontWeight: "700",
+    minWidth: "42px",
+    textAlign: "center",
+  },
+
+  floatingSettingsPopup: {
+    position: "fixed",
+    left: "50%",
+    transform: "translateX(-50%)",
+    bottom: "84px",
+    width: "calc(100% - 32px)",
+    maxWidth: "600px",
+    borderRadius: "16px",
+    padding: "14px 16px",
+    zIndex: 145,
+    boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
+    boxSizing: "border-box",
+  },
+
+  settingsPopupRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+    flexWrap: "wrap",
   },
 
   vipActiveBanner: {
@@ -1045,19 +1629,74 @@ const styles = {
 
   navButtons: {
     display: "flex",
-    justifyContent: "space-between",
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: "14px",
-    gap: "14px",
+    gap: "clamp(12px, 4vw, 28px)",
   },
 
   navButton: {
-    flex: 1,
-    height: "40px",
-    borderRadius: "22px",
+    width: "clamp(96px, 22vw, 140px)",
+    height: "clamp(34px, 6vw, 42px)",
+    borderRadius: "12px",
     border: "1px solid #ddd",
     background: "#f5f5f5",
-    fontSize: "12px",
+    fontSize: "clamp(12px, 2.2vw, 14px)",
     cursor: "pointer",
+    fontWeight: "500",
+    flexShrink: 0,
+  },
+
+  centerMenuButton: {
+    width: "clamp(42px, 9vw, 52px)",
+    height: "clamp(42px, 9vw, 52px)",
+    minWidth: "clamp(42px, 9vw, 52px)",
+    borderRadius: "999px",
+    border: "1px solid #ddd",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#f5f5f5",
+    cursor: "pointer",
+    padding: 0,
+    flexShrink: 0,
+  },
+
+  readerBottomMenu: {
+    position: "fixed",
+    left: "50%",
+    transform: "translateX(-50%)",
+    bottom: 0,
+    width: "100%",
+    maxWidth: "600px",
+    zIndex: 140,
+    display: "grid",
+    gridTemplateColumns: "repeat(4, 1fr)",
+    padding: "10px 16px calc(10px + env(safe-area-inset-bottom))",
+    boxShadow: "0 -4px 16px rgba(0,0,0,0.08)",
+    boxSizing: "border-box",
+  },
+
+  readerMenuItem: {
+    border: "none",
+    background: "transparent",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "6px",
+    padding: "6px 4px",
+    cursor: "pointer",
+  },
+
+  readerMenuIcon: {
+    fontSize: "22px",
+    lineHeight: 1,
+  },
+
+  readerMenuLabel: {
+    fontSize: "12px",
+    fontWeight: "500",
   },
 
   drawerOverlay: {
@@ -1228,22 +1867,6 @@ const styles = {
     cursor: "pointer",
   },
 
-  modalCancelFull: {
-    width: "100%",
-    height: "40px",
-    borderRadius: "8px",
-    border: "1px solid #ddd",
-    background: "#f5f5f5",
-    color: "#333",
-    fontWeight: "600",
-    cursor: "pointer",
-    marginTop: "12px",
-  },
-
-  paypalBox: {
-    marginTop: "10px",
-  },
-
   recommendOverlay: {
     position: "fixed",
     inset: 0,
@@ -1259,50 +1882,51 @@ const styles = {
   recommendCard: {
     width: "100%",
     maxWidth: "420px",
-    background: "#fff",
-    borderRadius: "14px",
-    padding: "22px 18px 18px",
+    borderRadius: "24px",
+    padding: "22px 20px 18px",
     boxSizing: "border-box",
     position: "relative",
+    boxShadow: "0 18px 50px rgba(0,0,0,0.22)",
   },
 
   recommendClose: {
     position: "absolute",
     top: "10px",
-    right: "10px",
+    right: "12px",
     border: "none",
     background: "transparent",
-    fontSize: "28px",
-    color: "#bbb",
+    fontSize: "34px",
     cursor: "pointer",
     lineHeight: 1,
+    zIndex: 2,
   },
 
-  recommendTop: {
-    display: "grid",
-    gridTemplateColumns: "90px 1fr 90px",
-    gap: "14px",
-    alignItems: "center",
-    marginBottom: "14px",
-  },
-
-  recommendSideCover: {
-    width: "90px",
-    height: "120px",
-    objectFit: "cover",
-    borderRadius: "8px",
-  },
-
-  recommendCenterLogo: {
-    height: "120px",
-    borderRadius: "20px",
-    background: "linear-gradient(180deg, #ff6b57, #ff2e8b)",
+  recommendHero: {
+    position: "relative",
     display: "flex",
-    alignItems: "center",
     justifyContent: "center",
-    color: "#fff",
-    fontSize: "78px",
-    fontWeight: "800",
+    alignItems: "center",
+    marginBottom: "18px",
+    minHeight: "150px",
+  },
+
+  recommendGlow: {
+    position: "absolute",
+    width: "180px",
+    height: "120px",
+    borderRadius: "28px",
+    background: "linear-gradient(180deg, #ff6b57, #ff2e8b)",
+    opacity: 0.95,
+  },
+
+  recommendMainCover: {
+    position: "relative",
+    width: "120px",
+    height: "160px",
+    objectFit: "cover",
+    borderRadius: "16px",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+    zIndex: 1,
   },
 
   recommendTitle: {
@@ -1310,15 +1934,15 @@ const styles = {
     lineHeight: "1.35",
     fontWeight: "800",
     margin: "0 0 12px 0",
-    color: "#111",
+    textAlign: "center",
   },
 
   recommendMetaRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
     gap: "10px",
-    marginBottom: "10px",
+    marginBottom: "14px",
     flexWrap: "wrap",
   },
 
@@ -1327,19 +1951,18 @@ const styles = {
     alignItems: "center",
     gap: "6px",
     fontSize: "13px",
-    color: "#555",
   },
 
   recommendDot: {
-    width: "16px",
-    height: "16px",
+    width: "18px",
+    height: "18px",
     borderRadius: "999px",
     background: "#ffe8eb",
     color: "#ff5a74",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: "10px",
+    fontSize: "11px",
     fontWeight: "700",
   },
 
@@ -1347,33 +1970,32 @@ const styles = {
     background: "#dff2ef",
     color: "#222",
     fontSize: "12px",
-    padding: "6px 10px",
-    borderRadius: "4px",
+    padding: "7px 12px",
+    borderRadius: "999px",
+    fontWeight: "600",
   },
 
   recommendLikes: {
     fontSize: "13px",
-    color: "#444",
+    fontWeight: "600",
   },
 
   recommendExcerpt: {
-    background: "#f6f6f6",
-    borderRadius: "4px",
-    padding: "12px 12px",
-    fontSize: "12px",
-    lineHeight: "1.6",
-    color: "#222",
+    borderRadius: "14px",
+    padding: "14px",
+    fontSize: "13px",
+    lineHeight: "1.65",
     marginBottom: "18px",
   },
 
   readingNowButton: {
     width: "100%",
-    height: "44px",
+    height: "48px",
     border: "none",
-    borderRadius: "24px",
+    borderRadius: "999px",
     background: "#111",
     color: "#fff",
-    fontSize: "14px",
+    fontSize: "15px",
     fontWeight: "700",
     cursor: "pointer",
     marginBottom: "12px",
@@ -1386,6 +2008,7 @@ const styles = {
     color: "#f0a94d",
     fontSize: "14px",
     cursor: "pointer",
+    padding: "6px 0",
   },
 };
 
