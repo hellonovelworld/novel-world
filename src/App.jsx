@@ -20,8 +20,9 @@ function App() {
 
       const { data, error } = await supabase
         .from("novels")
-        .select("*")
+        .select("id, slug, title, cover_url, intro_excerpt, catalogue_excerpt")
         .eq("slug", slug)
+        .eq("is_active", true)
         .single();
 
       if (error) {
@@ -57,10 +58,12 @@ function App() {
     );
   }
 
-  const title = novel.title || "Untitled Novel";
-  const author = novel.author || "Unknown Author";
-  const description = novel.description || "No description yet.";
-  const coverUrl = novel.cover_url || "/cover.jpg";
+  const title = novel?.title || "Untitled Novel";
+  const author = novel?.author || "";
+  const coverUrl = novel?.cover_url || "/cover.jpg";
+
+  const introText = novel?.intro_excerpt || "";
+  const catalogueText = novel?.catalogue_excerpt || "";
 
   return (
     <div style={styles.page}>
@@ -96,7 +99,7 @@ function App() {
             <div style={styles.quoteLine}></div>
           </div>
 
-          <p style={styles.previewParagraph}>{description}</p>
+          <p style={styles.previewParagraph}>{introText}</p>
 
           <div style={styles.quoteFooter}>”</div>
         </div>
@@ -107,7 +110,7 @@ function App() {
             <div style={styles.catalogueLatest}>Tap Start Reading &gt;</div>
           </div>
 
-          <p style={styles.catalogueParagraph}>{description}</p>
+          <p style={styles.catalogueParagraph}>{catalogueText}</p>
         </div>
 
         <div style={styles.bottomSpace}></div>
