@@ -9,31 +9,219 @@ import {
   ChevronRight,
   Sparkles,
 } from "lucide-react";
-import { getCoins } from "./wallet";
 import { useEffect, useState } from "react";
 import BottomNav from "./BottomNav";
+import { supabase } from "./supabaseClient";
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 
 function My() {
   const navigate = useNavigate();
+
   const [coins, setCoins] = useState(0);
   const [autoUnlock, setAutoUnlock] = useState(false);
+  const [toast, setToast] = useState("");
+  const [authUser, setAuthUser] = useState(null);
+  const [appUser, setAppUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchSessionUser = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/user/me`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Fetch session user error:", data.error);
+        setAppUser(null);
+        setCoins(0);
+        setAutoUnlock(false);
+        return null;
+      }
+
+      setAppUser(data.user || null);
+      setCoins(data.user?.coins || 0);
+      setAutoUnlock(Boolean(data.user?.auto_unlock));
+      return data.user;
+    } catch (error) {
+      console.error("fetchSessionUser error:", error);
+      setAppUser(null);
+      setCoins(0);
+      setAutoUnlock(false);
+      return null;
+    }
+  };
+
+  const linkAuthToSessionUser = async (accessToken) => {
+    try {
+      if (!accessToken) return null;
+
+      const response = await fetch(`${API_BASE}/api/session/link-auth`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Link auth error:", data.error);
+        return null;
+      }
+
+      console.log("✅ Linked auth to session user");
+
+      setAppUser(data.user || null);
+      setCoins(data.user?.coins || 0);
+      setAutoUnlock(Boolean(data.user?.auto_unlock));
+      return data.user;
+    } catch (error) {
+      console.error("linkAuthToSessionUser error:", error);
+      return null;
+    }
+  };
+
+  const updateAutoUnlock = async (nextValue) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/user/auto-unlock`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          autoUnlock: nextValue,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Auto unlock update error:", data.error);
+        setToast("Failed to update auto unlock");
+        return;
+      }
+
+      setAutoUnlock(Boolean(data.user?.auto_unlock));
+    } catch (error) {
+      console.error("updateAutoUnlock error:", error);
+      setToast("Failed to update auto unlock");
+    }
+  };
 
   useEffect(() => {
-    setCoins(getCoins());
+    const initUser = async () => {
+      setLoading(true);
+
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError) {
+          console.error("Auth getUser error:", authError);
+        }
+
+        setAuthUser(user || null);
+
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error("Get session error:", sessionError.message);
+        }
+
+        if (session?.access_token) {
+          await linkAuthToSessionUser(session.access_token);
+        } else {
+          await fetchSessionUser();
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initUser();
   }, []);
 
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 2000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Logout error:", error.message);
+      return;
+    }
+
+    setAuthUser(null);
+
+    // Keep session user from backend cookie if your backend supports guest session persistence.
+    await fetchSessionUser();
+
+    window.location.href = "/my";
+  };
+
+  const user = {
+    name: authUser?.user_metadata?.name || authUser?.email || "Guest",
+    id: appUser?.id?.slice(0, 6) || "----",
+    badge: "Reader",
+  };
+
+  const showSoon = (label) => {
+    setToast(`${label} coming soon`);
+  };
+
   const menu = [
-    { icon: <History size={19} />, label: "Reading History" },
-    { icon: <Wallet size={19} />, label: "Transaction Record" },
-    { icon: <Wallet size={19} />, label: "Coins Consumption Record" },
-    { icon: <BookOpen size={19} />, label: "Unlocked Series" },
-    { icon: <MessageSquare size={19} />, label: "Feedback Center" },
+    {
+      icon: <History size={19} />,
+      label: "Reading History",
+      onClick: () => showSoon("Reading History"),
+    },
+    {
+      icon: <Wallet size={19} />,
+      label: "Transaction Record",
+      onClick: () => showSoon("Transaction Record"),
+    },
+    {
+      icon: <Wallet size={19} />,
+      label: "Coins Consumption Record",
+      onClick: () => showSoon("Coins Consumption Record"),
+    },
+    {
+      icon: <BookOpen size={19} />,
+      label: "Unlocked Series",
+      onClick: () => navigate("/bookshelf"),
+    },
+    {
+      icon: <MessageSquare size={19} />,
+      label: "Feedback Center",
+      onClick: () => showSoon("Feedback Center"),
+    },
     {
       icon: <Settings size={19} />,
       label: "Auto Unlock Chapter",
       toggle: true,
     },
-    { icon: <Settings size={19} />, label: "Settings" },
+    {
+      icon: <Settings size={19} />,
+      label: "Settings",
+      onClick: () => showSoon("Settings"),
+    },
   ];
 
   return (
@@ -41,15 +229,37 @@ function My() {
       <div style={styles.phoneFrame}>
         <div style={styles.header}>
           <div style={styles.profile}>
-            <div style={styles.avatar}>M</div>
+            <div style={styles.avatar}>{user.name.charAt(0)}</div>
 
             <div style={styles.profileTextWrap}>
-              <div style={styles.name}>Master-4881721</div>
-              <div style={styles.sub}>ID: 4881721 · Welcome back</div>
+              <div style={styles.name}>{loading ? "Loading..." : user.name}</div>
+              <div style={styles.sub}>ID: {user.id} · Welcome back</div>
             </div>
           </div>
 
-          <button style={styles.loginBtn}>Log in</button>
+          {authUser ? (
+            <button style={styles.loginBtn} onClick={handleLogout}>
+              Log out
+            </button>
+          ) : (
+            <button
+              style={styles.loginBtn}
+              onClick={async () => {
+                const { error } = await supabase.auth.signInWithOAuth({
+                  provider: "google",
+                  options: {
+                    redirectTo: `${window.location.origin}/my`,
+                  },
+                });
+
+                if (error) {
+                  console.error("Login error:", error.message);
+                }
+              }}
+            >
+              Log in
+            </button>
+          )}
         </div>
 
         <div style={styles.walletShell}>
@@ -61,7 +271,7 @@ function My() {
 
             <div style={styles.walletBadge}>
               <Sparkles size={14} />
-              Reader
+              {user.badge}
             </div>
           </div>
 
@@ -91,10 +301,7 @@ function My() {
               </div>
             </div>
 
-            <button
-              style={styles.subscribe}
-              onClick={() => navigate("/")}
-            >
+            <button style={styles.subscribe} onClick={() => navigate("/")}>
               Subscribe
             </button>
           </div>
@@ -104,11 +311,14 @@ function My() {
 
         <div style={styles.menuCard}>
           {menu.map((item, i) => (
-            <div
-              key={i}
+            <button
+              key={item.label}
+              type="button"
+              onClick={item.toggle ? undefined : item.onClick}
               style={{
                 ...styles.menuRow,
                 ...(i !== menu.length - 1 ? styles.menuRowBorder : {}),
+                ...(item.toggle ? styles.menuRowStatic : {}),
               }}
             >
               <div style={styles.menuLeft}>
@@ -119,7 +329,12 @@ function My() {
               {item.toggle ? (
                 <button
                   type="button"
-                  onClick={() => setAutoUnlock((prev) => !prev)}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const nextValue = !autoUnlock;
+                    setAutoUnlock(nextValue);
+                    await updateAutoUnlock(nextValue);
+                  }}
                   style={{
                     ...styles.toggle,
                     ...(autoUnlock ? styles.toggleActive : {}),
@@ -130,12 +345,12 @@ function My() {
                       ...styles.toggleCircle,
                       ...(autoUnlock ? styles.toggleCircleActive : {}),
                     }}
-                  ></div>
+                  />
                 </button>
               ) : (
                 <ChevronRight size={18} color="#9aa1b3" />
               )}
-            </div>
+            </button>
           ))}
         </div>
 
@@ -149,6 +364,8 @@ function My() {
         <div style={styles.bottomSpace}></div>
 
         <BottomNav active="my" />
+
+        {toast ? <div style={styles.toast}>{toast}</div> : null}
       </div>
     </div>
   );
@@ -168,6 +385,7 @@ const styles = {
     padding: "18px 16px 0",
     fontFamily:
       "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    position: "relative",
   },
 
   header: {
@@ -375,11 +593,19 @@ const styles = {
   },
 
   menuRow: {
+    width: "100%",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     padding: "16px",
     background: "#fff",
+    border: "none",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+
+  menuRowStatic: {
+    cursor: "default",
   },
 
   menuRowBorder: {
@@ -466,6 +692,21 @@ const styles = {
 
   bottomSpace: {
     height: "76px",
+  },
+
+  toast: {
+    position: "fixed",
+    left: "50%",
+    bottom: "90px",
+    transform: "translateX(-50%)",
+    background: "rgba(17,24,39,0.92)",
+    color: "#fff",
+    padding: "10px 14px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: "700",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+    zIndex: 20,
   },
 };
 

@@ -1,72 +1,74 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 
 function PayPalSuccess() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [message, setMessage] = useState("Finalizing your payment...");
+  const [loading, setLoading] = useState(true);
+  const hasCapturedRef = useRef(false);
 
   useEffect(() => {
+    if (hasCapturedRef.current) return;
+    hasCapturedRef.current = true;
+
     const capturePayment = async () => {
       try {
         const orderID = searchParams.get("token");
-        const pendingPackRaw = localStorage.getItem("pendingPack");
 
         if (!orderID) {
           setMessage("Missing PayPal order ID.");
+          setLoading(false);
           return;
         }
 
-        if (!pendingPackRaw) {
-          setMessage("No pending coin package found.");
-          return;
-        }
-
-        const pendingPack = JSON.parse(pendingPackRaw);
-
-        const response = await fetch(
-          "https://novel-world-api.onrender.com/api/paypal/capture-order",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              userId: localStorage.getItem("userId"),
-              orderID,
-            }),
-          }
-        );
+        const response = await fetch(`${API_BASE}/api/paypal/capture-order`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ orderID }),
+        });
 
         const result = await response.json();
         console.log("paypal success capture result:", result);
 
         if (!response.ok || !result.success) {
-          setMessage(`Payment capture failed: ${result.error || "Unknown error"}`);
+          setMessage(
+            `Payment capture failed: ${result.error || "Unknown error"}`
+          );
+          setLoading(false);
           return;
         }
 
-        localStorage.removeItem("pendingPack");
+        const nextPath =
+          typeof result.redirectTo === "string" && result.redirectTo
+            ? result.redirectTo
+            : "/my";
 
         if (result.alreadyProcessed) {
           setMessage("Payment already processed. Redirecting...");
+        } else if (result.vipActivated) {
+          setMessage("SVIP activated successfully! Redirecting...");
+        } else if (typeof result.addCoins === "number" && result.addCoins > 0) {
+          setMessage(`${result.addCoins} coins added successfully! Redirecting...`);
         } else {
-          setMessage(`${pendingPack.coins} coins added successfully! Redirecting...`);
+          setMessage("Payment completed successfully! Redirecting...");
         }
 
-        setTimeout(() => {
-          const lastChapter = localStorage.getItem("lastChapter");
-          localStorage.removeItem("lastChapter");
+        setLoading(false);
 
-          if (lastChapter) {
-            navigate(`/chapter/${lastChapter}`);
-          } else {
-            navigate("/novel");
-          }
+        setTimeout(() => {
+          navigate(nextPath);
         }, 1800);
       } catch (error) {
         console.error("PayPal success error:", error);
         setMessage(`Something went wrong: ${error.message || "Unknown error"}`);
+        setLoading(false);
       }
     };
 
@@ -78,8 +80,16 @@ function PayPalSuccess() {
       <div style={styles.card}>
         <h1 style={styles.title}>Payment Success</h1>
         <p style={styles.text}>{message}</p>
-        <button style={styles.button} onClick={() => navigate("/novel")}>
-          Back to Novel
+
+        <button
+          style={{
+            ...styles.button,
+            ...(loading ? styles.buttonDisabled : {}),
+          }}
+          onClick={() => navigate("/my")}
+          disabled={loading}
+        >
+          {loading ? "Processing..." : "Go to My Wallet"}
         </button>
       </div>
     </div>
@@ -127,6 +137,10 @@ const styles = {
     color: "#fff",
     fontWeight: "700",
     cursor: "pointer",
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+    cursor: "not-allowed",
   },
 };
 

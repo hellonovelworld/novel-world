@@ -3,6 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { List, Settings, Moon, Sun, Bookmark } from "lucide-react";
 
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+
 function Chapter() {
   const { slug, id } = useParams();
   const navigate = useNavigate();
@@ -19,12 +22,15 @@ function Chapter() {
   const [paypalLoading, setPaypalLoading] = useState(false);
   const [isVip, setIsVip] = useState(false);
   const [vipExpiry, setVipExpiry] = useState(null);
+
   const [chapters, setChapters] = useState([]);
   const [chaptersLoading, setChaptersLoading] = useState(true);
+
   const [novelId, setNovelId] = useState(null);
   const [novelTitle, setNovelTitle] = useState(
     "At My Mother’s Funeral, My Husband Chose His Mistress—So I Took Everything"
   );
+  const [novelCover, setNovelCover] = useState("/cover.jpg");
 
   const [showSettings, setShowSettings] = useState(false);
   const [showBottomMenu, setShowBottomMenu] = useState(false);
@@ -129,6 +135,76 @@ function Chapter() {
         };
   }, [isNightMode]);
 
+  const applyUserData = (user) => {
+    const unlocked = Array.isArray(user?.unlocked) ? user.unlocked : [];
+    const expiry = user?.vip_expiry || null;
+    const vipActive = expiry ? new Date(expiry) > new Date() : false;
+
+    setCoins(Number(user?.coins || 0));
+    setUnlockedChapters(unlocked);
+    setVipExpiry(expiry);
+    setIsVip(vipActive);
+  };
+
+  const fetchSessionUser = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/user/me`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Fetch session user error:", data.error);
+        setCoins(0);
+        setUnlockedChapters([]);
+        setVipExpiry(null);
+        setIsVip(false);
+        return null;
+      }
+
+      applyUserData(data.user || {});
+      return data.user || null;
+    } catch (error) {
+      console.error("fetchSessionUser error:", error);
+      setCoins(0);
+      setUnlockedChapters([]);
+      setVipExpiry(null);
+      setIsVip(false);
+      return null;
+    }
+  };
+
+  const linkAuthToSessionUser = async (accessToken) => {
+    try {
+      if (!accessToken) return null;
+
+      const response = await fetch(`${API_BASE}/api/session/link-auth`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Link auth error:", data.error);
+        return null;
+      }
+
+      console.log("✅ Linked auth to session user");
+      applyUserData(data.user || {});
+      return data.user || null;
+    } catch (error) {
+      console.error("linkAuthToSessionUser error:", error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     setShowBottomMenu(false);
     setShowSettings(false);
@@ -137,53 +213,20 @@ function Chapter() {
   useEffect(() => {
     const initUserAndLoadData = async () => {
       try {
-        let userId = localStorage.getItem("userId");
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
 
-        const initRes = await fetch(
-          "https://novel-world-api.onrender.com/api/user/init",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ userId }),
-          }
-        );
-
-        const initData = await initRes.json();
-
-        if (!initRes.ok || !initData.success) {
-          throw new Error(initData.error || "Failed to initialize user");
+        if (sessionError) {
+          console.error("Get session error:", sessionError.message);
         }
 
-        localStorage.setItem("userId", initData.userId);
-
-        const userRes = await fetch(
-          "https://novel-world-api.onrender.com/api/user/data",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ userId: initData.userId }),
-          }
-        );
-
-        const userData = await userRes.json();
-
-        if (!userRes.ok || !userData.success) {
-          throw new Error(userData.error || "Failed to load user data");
+        if (session?.access_token) {
+          await linkAuthToSessionUser(session.access_token);
+        } else {
+          await fetchSessionUser();
         }
-
-        const user = userData.user || {};
-        const unlocked = Array.isArray(user.unlocked) ? user.unlocked : [];
-        const expiry = user.vip_expiry || null;
-        const vipActive = expiry ? new Date(expiry) > new Date() : false;
-
-        setCoins(Number(user.coins || 0));
-        setUnlockedChapters(unlocked);
-        setVipExpiry(expiry);
-        setIsVip(vipActive);
       } catch (error) {
         console.error("init/load user error:", error);
         setIsVip(false);
@@ -195,7 +238,9 @@ function Chapter() {
   }, []);
 
   useEffect(() => {
-    fetch("https://novel-world-api.onrender.com/health").catch(() => {});
+    fetch(`${API_BASE}/health`, {
+      credentials: "include",
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -228,7 +273,7 @@ function Chapter() {
     const fetchNovel = async () => {
       const { data, error } = await supabase
         .from("novels")
-        .select("id, title")
+        .select("id, title, cover_url")
         .eq("slug", slug)
         .single();
 
@@ -243,6 +288,12 @@ function Chapter() {
 
       if (data?.title) {
         setNovelTitle(data.title);
+      }
+
+      if (data?.cover_url && data.cover_url.trim() !== "") {
+        setNovelCover(data.cover_url);
+      } else {
+        setNovelCover("/cover.jpg");
       }
     };
 
@@ -420,31 +471,19 @@ function Chapter() {
     try {
       setPaypalLoading(true);
 
-      localStorage.setItem("lastChapter", String(chapterNumber));
-
-      localStorage.setItem(
-        "pendingPack",
-        JSON.stringify({
-          key: packToBuy.key,
-          coins: packToBuy.coins,
-          price: packToBuy.price,
-          amount: packToBuy.amount,
-        })
-      );
-
-      const response = await fetch(
-        "https://novel-world-api.onrender.com/api/paypal/create-order",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            userId: localStorage.getItem("userId"),
-            packKey: packToBuy.key,
-          }),
-        }
-      );
+      const response = await fetch(`${API_BASE}/api/paypal/create-order`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          packKey: packToBuy.key,
+          slug,
+          novelId,
+          chapterNumber,
+        }),
+      });
 
       const data = await response.json();
 
@@ -471,21 +510,18 @@ function Chapter() {
     }
 
     try {
-      const userId = localStorage.getItem("userId");
-
-      const response = await fetch(
-        "https://novel-world-api.onrender.com/api/unlock-chapter",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            userId,
-            chapterNumber,
-          }),
-        }
-      );
+      const response = await fetch(`${API_BASE}/api/unlock-chapter`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          slug,
+          novelId,
+          chapterNumber,
+        }),
+      });
 
       const data = await response.json();
 
@@ -496,6 +532,12 @@ function Chapter() {
 
       setCoins(Number(data.coins || 0));
       setUnlockedChapters(Array.isArray(data.unlocked) ? data.unlocked : []);
+      setVipExpiry(data.vip_expiry || vipExpiry);
+
+      if (data.vip_expiry) {
+        setIsVip(new Date(data.vip_expiry) > new Date());
+      }
+
       setShowModal(false);
       alert(`Chapter ${chapterNumber} unlocked successfully.`);
     } catch (error) {
@@ -529,7 +571,10 @@ function Chapter() {
           >
             ‹
           </button>
-          <span style={{ ...styles.topTitle, color: theme.text }}>
+          <span
+            style={{ ...styles.topTitle, color: theme.text, cursor: "pointer" }}
+            onClick={() => navigate(`/novel/${slug}`)}
+          >
             {novelTitle}
           </span>
         </div>
@@ -613,7 +658,14 @@ function Chapter() {
         >
           ‹
         </button>
-        <span style={{ ...styles.topTitle, color: theme.text }}>
+        <span
+          style={{
+            ...styles.topTitle,
+            color: theme.text,
+            cursor: "pointer",
+          }}
+          onClick={() => navigate(`/novel/${slug}`)}
+        >
           {novelTitle}
         </span>
       </div>
@@ -629,6 +681,7 @@ function Chapter() {
         {isVip && (
           <div style={styles.vipActiveBanner}>
             VIP Active · Unlimited Access
+            {vipExpiry ? ` until ${new Date(vipExpiry).toLocaleDateString()}` : ""}
           </div>
         )}
 
@@ -1055,7 +1108,7 @@ function Chapter() {
             <div style={styles.drawerHeader}>
               <div style={styles.drawerBookInfo}>
                 <img
-                  src="/cover.jpg"
+                  src={novelCover}
                   alt="Book cover"
                   style={styles.drawerCover}
                 />
@@ -1964,20 +2017,6 @@ const styles = {
     justifyContent: "center",
     fontSize: "11px",
     fontWeight: "700",
-  },
-
-  recommendTag: {
-    background: "#dff2ef",
-    color: "#222",
-    fontSize: "12px",
-    padding: "7px 12px",
-    borderRadius: "999px",
-    fontWeight: "600",
-  },
-
-  recommendLikes: {
-    fontSize: "13px",
-    fontWeight: "600",
   },
 
   recommendExcerpt: {
