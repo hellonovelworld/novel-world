@@ -77,21 +77,6 @@ function isUuid(value) {
   );
 }
 
-function normalizeUnlocked(value) {
-  if (Array.isArray(value)) return value;
-
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
-}
-
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -117,7 +102,6 @@ function serializeUser(user) {
     id: user.id,
     coins: Number(user.coins || 0),
     vip_expiry: user.vip_expiry,
-    unlocked: normalizeUnlocked(user.unlocked),
     auto_unlock: Boolean(user.auto_unlock),
     auth_user_id: user.auth_user_id || null,
     email: user.email || null,
@@ -284,7 +268,9 @@ async function getAccessToken() {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error_description || "Failed to get PayPal access token");
+    throw new Error(
+      data.error_description || "Failed to get PayPal access token"
+    );
   }
 
   return data.access_token;
@@ -305,6 +291,61 @@ async function resolveNovelIdFromBody({ slug, novelId }) {
   }
 
   return novel.id;
+}
+
+async function resolveChapterForNovel({ novelId, chapterId, chapterNumber }) {
+  if (!novelId) return null;
+
+  if (chapterId) {
+    const { data: chapter, error } = await supabase
+      .from("chapters")
+      .select("id, novel_id, chapter_number, title, is_free, coin_price")
+      .eq("id", chapterId)
+      .eq("novel_id", novelId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (chapter) return chapter;
+  }
+
+  if (chapterNumber) {
+    const numericChapterNumber = Number(chapterNumber);
+
+    if (!numericChapterNumber || Number.isNaN(numericChapterNumber)) {
+      return null;
+    }
+
+    const { data: chapter, error } = await supabase
+      .from("chapters")
+      .select("id, novel_id, chapter_number, title, is_free, coin_price")
+      .eq("novel_id", novelId)
+      .eq("chapter_number", numericChapterNumber)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (chapter) return chapter;
+  }
+
+  return null;
+}
+
+async function getLinkedUserIds(user) {
+  let userIds = [user.id];
+
+  if (user.auth_user_id) {
+    const { data: linkedUsers, error: linkedUsersError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_user_id", user.auth_user_id);
+
+    if (linkedUsersError) {
+      throw linkedUsersError;
+    }
+
+    userIds = [...new Set([user.id, ...(linkedUsers || []).map((u) => u.id)])];
+  }
+
+  return userIds;
 }
 
 app.get("/", (req, res) => {
@@ -343,7 +384,9 @@ app.get("/api/user/me", async (req, res) => {
     });
   } catch (error) {
     console.error("user/me error:", error);
-    res.status(500).json({ error: error.message || "Failed to load current user" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to load current user" });
   }
 });
 
@@ -394,7 +437,9 @@ app.post("/api/session/logout", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("session/logout error:", error);
-    res.status(500).json({ error: error.message || "Failed to logout session" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to logout session" });
   }
 });
 
@@ -492,7 +537,9 @@ app.post("/api/session/link-auth", async (req, res) => {
     });
   } catch (error) {
     console.error("session/link-auth error:", error);
-    res.status(500).json({ error: error.message || "Failed to link auth user" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to link auth user" });
   }
 });
 
@@ -527,7 +574,480 @@ app.patch("/api/user/auto-unlock", async (req, res) => {
     });
   } catch (error) {
     console.error("user/auto-unlock error:", error);
-    res.status(500).json({ error: error.message || "Failed to update auto unlock" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to update auto unlock" });
+  }
+});
+
+app.post("/api/feedback", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const { message, email } = req.body || {};
+
+    const trimmedMessage = String(message || "").trim();
+    const trimmedEmail = String(email || "").trim();
+
+    if (!trimmedMessage) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+
+    if (trimmedMessage.length < 5) {
+      return res.status(400).json({ error: "Message is too short" });
+    }
+
+    if (trimmedMessage.length > 2000) {
+      return res.status(400).json({ error: "Message is too long" });
+    }
+
+    if (
+      trimmedEmail &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)
+    ) {
+      return res.status(400).json({ error: "Please enter a valid email address" });
+    }
+
+    const { data, error } = await supabase
+      .from("feedback_messages")
+      .insert({
+        user_id: user.id,
+        email: trimmedEmail || user.email || null,
+        message: trimmedMessage,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw error || new Error("Failed to save feedback");
+    }
+
+    res.json({
+      success: true,
+      feedback: data,
+    });
+  } catch (error) {
+    console.error("POST /api/feedback error:", error);
+    res.status(500).json({
+      error: error.message || "Failed to submit feedback",
+    });
+  }
+});
+
+/**
+ * READING PROGRESS ROUTES
+ */
+
+app.post("/api/reading-progress", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const { slug, novelId, chapterId, chapterNumber } = req.body || {};
+
+    const resolvedNovelId = await resolveNovelIdFromBody({ slug, novelId });
+
+    if (!resolvedNovelId) {
+      return res.status(400).json({ error: "Missing or invalid novelId/slug" });
+    }
+
+    const numericChapterNumber = Number(chapterNumber);
+
+    if (
+      !numericChapterNumber ||
+      Number.isNaN(numericChapterNumber) ||
+      numericChapterNumber < 1
+    ) {
+      return res.status(400).json({ error: "Invalid chapterNumber" });
+    }
+
+    const chapter = await resolveChapterForNovel({
+      novelId: resolvedNovelId,
+      chapterId,
+      chapterNumber: numericChapterNumber,
+    });
+
+    if (!chapter) {
+      return res.status(404).json({ error: "Chapter not found for this novel" });
+    }
+
+    const { data: existingProgress, error: existingError } = await supabase
+      .from("reading_progress")
+      .select("id, last_read_chapter_number")
+      .eq("user_id", user.id)
+      .eq("novel_id", resolvedNovelId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    if (
+      existingProgress &&
+      Number(existingProgress.last_read_chapter_number || 0) >
+        numericChapterNumber
+    ) {
+      return res.json({
+        success: true,
+        skipped: true,
+        progress: {
+          id: existingProgress.id,
+          user_id: user.id,
+          novel_id: resolvedNovelId,
+          chapter_id: chapter.id,
+          last_read_chapter_number:
+            existingProgress.last_read_chapter_number,
+        },
+      });
+    }
+
+    const { data: savedProgress, error: saveError } = await supabase
+      .from("reading_progress")
+      .upsert(
+        {
+          user_id: user.id,
+          novel_id: resolvedNovelId,
+          chapter_id: chapter.id,
+          last_read_chapter_number: numericChapterNumber,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "user_id,novel_id",
+        }
+      )
+      .select()
+      .single();
+
+    if (saveError || !savedProgress) {
+      throw saveError || new Error("Failed to save reading progress");
+    }
+
+    res.json({
+      success: true,
+      progress: savedProgress,
+    });
+  } catch (error) {
+    console.error("reading-progress POST error:", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to save reading progress" });
+  }
+});
+
+app.get("/api/reading-progress", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("reading_progress")
+      .select(`
+        id,
+        user_id,
+        novel_id,
+        chapter_id,
+        last_read_chapter_number,
+        updated_at,
+        novels (
+          id,
+          slug,
+          title,
+          author,
+          cover_url
+        )
+      `)
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      progress: data || [],
+    });
+  } catch (error) {
+    console.error("reading-progress GET all error:", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to fetch reading progress" });
+  }
+});
+
+app.get("/api/reading-progress/:novelId", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const { novelId } = req.params;
+
+    if (!isUuid(novelId)) {
+      return res.status(400).json({ error: "Invalid novelId" });
+    }
+
+    const { data, error } = await supabase
+      .from("reading_progress")
+      .select(`
+        id,
+        user_id,
+        novel_id,
+        chapter_id,
+        last_read_chapter_number,
+        updated_at,
+        novels (
+          id,
+          slug,
+          title,
+          author,
+          cover_url
+        )
+      `)
+      .eq("user_id", user.id)
+      .eq("novel_id", novelId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      progress: data || null,
+    });
+  } catch (error) {
+    console.error("reading-progress GET one error:", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to fetch reading progress" });
+  }
+});
+
+app.get("/api/purchases", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    if (user.auth_user_id) {
+      const userIds = await getLinkedUserIds(user);
+
+      const { data, error } = await supabase
+        .from("purchases")
+        .select(`
+          id,
+          paypal_order_id,
+          coins,
+          amount,
+          pack_key,
+          status,
+          slug,
+          novel_id,
+          chapter_number,
+          created_at,
+          user_id
+        `)
+        .in("user_id", userIds)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      return res.json({
+        success: true,
+        purchases: data || [],
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("purchases")
+      .select(`
+        id,
+        paypal_order_id,
+        coins,
+        amount,
+        pack_key,
+        status,
+        slug,
+        novel_id,
+        chapter_number,
+        created_at,
+        user_id
+      `)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      purchases: data || [],
+    });
+  } catch (error) {
+    console.error("GET /api/purchases error:", error);
+    res.status(500).json({ error: error.message || "Failed to fetch purchases" });
+  }
+});
+
+app.get("/api/coin-transactions", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const userIds = await getLinkedUserIds(user);
+
+    const { data, error } = await supabase
+      .from("coin_transactions")
+      .select(`
+        id,
+        user_id,
+        type,
+        amount,
+        balance_after,
+        novel_id,
+        chapter_id,
+        note,
+        created_at,
+        novels:novel_id (
+          id,
+          slug,
+          title,
+          cover_url
+        ),
+        chapters:chapter_id (
+          id,
+          chapter_number,
+          title
+        )
+      `)
+      .in("user_id", userIds)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      transactions: data || [],
+    });
+  } catch (error) {
+    console.error("GET /api/coin-transactions error:", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to fetch coin transactions" });
+  }
+});
+
+app.get("/api/unlocked-series", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const userIds = await getLinkedUserIds(user);
+
+    const { data, error } = await supabase
+      .from("unlocked_chapters")
+      .select(`
+        id,
+        user_id,
+        novel_id,
+        chapter_id,
+        chapter_number,
+        unlocked_at,
+        novels:novel_id (
+          id,
+          slug,
+          title,
+          author,
+          cover_url
+        )
+      `)
+      .in("user_id", userIds)
+      .order("unlocked_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    const rows = data || [];
+    const groupedMap = new Map();
+
+    for (const row of rows) {
+      const novel = row.novels;
+      if (!novel?.id) continue;
+
+      if (!groupedMap.has(novel.id)) {
+        groupedMap.set(novel.id, {
+          novel,
+          unlockedCount: 0,
+          latestUnlockedChapter: 0,
+          latestUnlockedAt: row.unlocked_at,
+        });
+      }
+
+      const entry = groupedMap.get(novel.id);
+      entry.unlockedCount += 1;
+
+      if (Number(row.chapter_number || 0) > entry.latestUnlockedChapter) {
+        entry.latestUnlockedChapter = Number(row.chapter_number || 0);
+      }
+
+      if (
+        row.unlocked_at &&
+        new Date(row.unlocked_at) > new Date(entry.latestUnlockedAt)
+      ) {
+        entry.latestUnlockedAt = row.unlocked_at;
+      }
+    }
+
+    const series = Array.from(groupedMap.values()).sort(
+      (a, b) => new Date(b.latestUnlockedAt) - new Date(a.latestUnlockedAt)
+    );
+
+    res.json({
+      success: true,
+      series,
+    });
+  } catch (error) {
+    console.error("GET /api/unlocked-series error:", error);
+    res.status(500).json({
+      error: error.message || "Failed to fetch unlocked series",
+    });
+  }
+});
+
+app.get("/api/unlocked-chapters/:novelId", async (req, res) => {
+  try {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const { novelId } = req.params;
+
+    if (!isUuid(novelId)) {
+      return res.status(400).json({ error: "Invalid novelId" });
+    }
+
+    const userIds = await getLinkedUserIds(user);
+
+    const { data, error } = await supabase
+      .from("unlocked_chapters")
+      .select("chapter_id, chapter_number")
+      .in("user_id", userIds)
+      .eq("novel_id", novelId);
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      unlockedChapters: data || [],
+    });
+  } catch (error) {
+    console.error("GET /api/unlocked-chapters/:novelId error:", error);
+    res.status(500).json({
+      error: error.message || "Failed to fetch unlocked chapters",
+    });
   }
 });
 
@@ -622,6 +1142,8 @@ app.post("/api/paypal/capture-order", async (req, res) => {
     const sessionUser = await requireSessionUser(req, res);
     if (!sessionUser) return;
 
+    const sessionRow = await getSessionRowFromCookie(req);
+
     const { orderID } = req.body || {};
 
     if (!orderID) {
@@ -649,21 +1171,36 @@ app.post("/api/paypal/capture-order", async (req, res) => {
       purchaseStatus: purchase?.status,
     });
 
-    if (purchase.user_id !== sessionUser.id) {
-      console.warn("capture-order session mismatch:", {
-        sessionUserId: sessionUser.id,
-        purchaseUserId: purchase.user_id,
-        orderID,
-      });
+    const captureUserId = purchase.user_id || sessionUser.id;
+
+    if (sessionRow && captureUserId && sessionUser.id !== captureUserId) {
+      const { error: relinkSessionError } = await supabase
+        .from("sessions")
+        .update({
+          user_id: captureUserId,
+          is_guest: false,
+          expires_at: new Date(
+            Date.now() + 1000 * 60 * 60 * 24 * 30
+          ).toISOString(),
+        })
+        .eq("id", sessionRow.id);
+
+      if (relinkSessionError) {
+        console.error(
+          "capture-order session relink error:",
+          relinkSessionError
+        );
+        return res
+          .status(500)
+          .json({ error: "Failed to relink session after PayPal return" });
+      }
     }
 
     if (purchase.status === "completed") {
-      const completedUserId = purchase.user_id || sessionUser.id;
-
       const { data: freshUser } = await supabase
         .from("users")
         .select("*")
-        .eq("id", completedUserId)
+        .eq("id", captureUserId)
         .maybeSingle();
 
       return res.json({
@@ -694,14 +1231,6 @@ app.post("/api/paypal/capture-order", async (req, res) => {
     if (!response.ok) {
       return res.status(response.status).json(data);
     }
-
-    const captureUserId = purchase.user_id || sessionUser.id;
-
-    console.log("capture user lookup", {
-      captureUserId,
-      sessionUserId: sessionUser?.id,
-      purchaseUserId: purchase?.user_id,
-    });
 
     const { data: user, error: userError } = await supabase
       .from("users")
@@ -764,6 +1293,23 @@ app.post("/api/paypal/capture-order", async (req, res) => {
       throw updateUserError || new Error("Failed to update user after capture");
     }
 
+    if (purchase.pack_key !== "svip_7day" && Number(purchase.coins || 0) > 0) {
+      const { error: ledgerError } = await supabase
+        .from("coin_transactions")
+        .insert({
+          user_id: captureUserId,
+          type: "purchase",
+          amount: Number(purchase.coins || 0),
+          balance_after: Number(updatedUser.coins || 0),
+          novel_id: purchase.novel_id || null,
+          note: `${purchase.pack_key || "coin_pack"} purchase`,
+        });
+
+      if (ledgerError) {
+        console.error("coin ledger purchase insert error:", ledgerError);
+      }
+    }
+
     const { error: updatePurchaseError } = await supabase
       .from("purchases")
       .update({ status: "completed" })
@@ -794,7 +1340,6 @@ app.post("/api/unlock-chapter", async (req, res) => {
     if (!user) return;
 
     const { slug, novelId, chapterNumber } = req.body || {};
-
     const numericChapterNumber = Number(chapterNumber);
 
     if (!numericChapterNumber || Number.isNaN(numericChapterNumber)) {
@@ -819,14 +1364,12 @@ app.post("/api/unlock-chapter", async (req, res) => {
     }
 
     const currentCoins = Number(user.coins || 0);
-    const unlocked = normalizeUnlocked(user.unlocked);
 
     if (isVipActive(user)) {
       return res.json({
         success: true,
         alreadyUnlocked: true,
         coins: currentCoins,
-        unlocked,
         vip_expiry: user.vip_expiry,
       });
     }
@@ -836,17 +1379,30 @@ app.post("/api/unlock-chapter", async (req, res) => {
         success: true,
         alreadyUnlocked: true,
         coins: currentCoins,
-        unlocked,
         vip_expiry: user.vip_expiry,
       });
     }
 
-    if (unlocked.includes(numericChapterNumber)) {
+    const userIds = await getLinkedUserIds(user);
+
+    const { data: existingUnlockedRow, error: existingUnlockedError } =
+      await supabase
+        .from("unlocked_chapters")
+        .select("id")
+        .in("user_id", userIds)
+        .eq("novel_id", resolvedNovelId)
+        .eq("chapter_id", chapter.id)
+        .maybeSingle();
+
+    if (existingUnlockedError) {
+      throw existingUnlockedError;
+    }
+
+    if (existingUnlockedRow) {
       return res.json({
         success: true,
         alreadyUnlocked: true,
         coins: currentCoins,
-        unlocked,
         vip_expiry: user.vip_expiry,
       });
     }
@@ -862,14 +1418,12 @@ app.post("/api/unlock-chapter", async (req, res) => {
       });
     }
 
-    const updatedUnlocked = [...new Set([...unlocked, numericChapterNumber])];
     const updatedCoins = currentCoins - unlockPrice;
 
     const { data: updatedUser, error: updateError } = await supabase
       .from("users")
       .update({
         coins: updatedCoins,
-        unlocked: updatedUnlocked,
         updated_at: new Date().toISOString(),
       })
       .eq("id", user.id)
@@ -880,10 +1434,48 @@ app.post("/api/unlock-chapter", async (req, res) => {
       throw updateError || new Error("Failed to unlock chapter");
     }
 
+    const { error: unlockedInsertError } = await supabase
+      .from("unlocked_chapters")
+      .upsert(
+        {
+          user_id: user.id,
+          novel_id: resolvedNovelId,
+          chapter_id: chapter.id,
+          chapter_number: numericChapterNumber,
+          unlocked_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "user_id,chapter_id",
+        }
+      );
+
+    if (unlockedInsertError) {
+      console.error(
+        "unlocked_chapters insert error:",
+        unlockedInsertError
+      );
+    }
+
+    const { error: ledgerError } = await supabase
+      .from("coin_transactions")
+      .insert({
+        user_id: user.id,
+        type: "unlock",
+        amount: -unlockPrice,
+        balance_after: Number(updatedUser.coins || 0),
+        novel_id: resolvedNovelId,
+        chapter_id: chapter.id,
+        note: `Unlocked chapter ${numericChapterNumber}`,
+      });
+
+    if (ledgerError) {
+      console.error("coin ledger unlock insert error:", ledgerError);
+    }
+
     res.json({
       success: true,
       coins: Number(updatedUser.coins || 0),
-      unlocked: normalizeUnlocked(updatedUser.unlocked),
+      unlocked: [],
       vip_expiry: updatedUser.vip_expiry,
     });
   } catch (error) {

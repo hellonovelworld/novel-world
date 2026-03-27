@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { List, Settings, Moon, Sun, Bookmark } from "lucide-react";
 
@@ -22,9 +22,12 @@ function Chapter() {
   const [paypalLoading, setPaypalLoading] = useState(false);
   const [isVip, setIsVip] = useState(false);
   const [vipExpiry, setVipExpiry] = useState(null);
+  const [autoUnlock, setAutoUnlock] = useState(false);
+  const [autoUnlockLoading, setAutoUnlockLoading] = useState(false);
 
   const [chapters, setChapters] = useState([]);
   const [chaptersLoading, setChaptersLoading] = useState(true);
+  const [unlockedLoading, setUnlockedLoading] = useState(true);
 
   const [novelId, setNovelId] = useState(null);
   const [novelTitle, setNovelTitle] = useState(
@@ -38,6 +41,8 @@ function Chapter() {
   const [fontSize, setFontSize] = useState(15);
   const [isNightMode, setIsNightMode] = useState(false);
   const [bookmarks, setBookmarks] = useState({});
+
+  const lastSavedProgressKeyRef = useRef(null);
 
   const chapterNumber = Number(id) || 1;
   const lastChapter = chapters.length;
@@ -136,14 +141,13 @@ function Chapter() {
   }, [isNightMode]);
 
   const applyUserData = (user) => {
-    const unlocked = Array.isArray(user?.unlocked) ? user.unlocked : [];
     const expiry = user?.vip_expiry || null;
     const vipActive = expiry ? new Date(expiry) > new Date() : false;
 
     setCoins(Number(user?.coins || 0));
-    setUnlockedChapters(unlocked);
     setVipExpiry(expiry);
     setIsVip(vipActive);
+    setAutoUnlock(Boolean(user?.auto_unlock));
   };
 
   const fetchSessionUser = async () => {
@@ -158,9 +162,9 @@ function Chapter() {
       if (!response.ok) {
         console.error("Fetch session user error:", data.error);
         setCoins(0);
-        setUnlockedChapters([]);
         setVipExpiry(null);
         setIsVip(false);
+        setAutoUnlock(false);
         return null;
       }
 
@@ -169,9 +173,9 @@ function Chapter() {
     } catch (error) {
       console.error("fetchSessionUser error:", error);
       setCoins(0);
-      setUnlockedChapters([]);
       setVipExpiry(null);
       setIsVip(false);
+      setAutoUnlock(false);
       return null;
     }
   };
@@ -205,6 +209,86 @@ function Chapter() {
     }
   };
 
+  const fetchUnlockedChaptersForNovel = async (targetNovelId) => {
+    if (!targetNovelId) {
+      setUnlockedChapters([]);
+      setUnlockedLoading(false);
+      return;
+    }
+
+    try {
+      setUnlockedLoading(true);
+
+      const response = await fetch(
+        `${API_BASE}/api/unlocked-chapters/${targetNovelId}`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        console.error(
+          "Failed to fetch unlocked chapters:",
+          data?.error || "Unknown error"
+        );
+        setUnlockedChapters([]);
+        return;
+      }
+
+      const chapterNumbers = (data?.unlockedChapters || [])
+        .map((item) => Number(item.chapter_number))
+        .filter((num) => Number.isFinite(num));
+
+      setUnlockedChapters(chapterNumbers);
+    } catch (error) {
+      console.error("fetchUnlockedChaptersForNovel error:", error);
+      setUnlockedChapters([]);
+    } finally {
+      setUnlockedLoading(false);
+    }
+  };
+
+  const saveReadingProgress = async ({
+    slug,
+    novelId,
+    chapterId,
+    chapterNumber,
+  }) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/reading-progress`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          slug,
+          novelId,
+          chapterId,
+          chapterNumber,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        console.error(
+          "Save reading progress error:",
+          data?.error || "Unknown error"
+        );
+        return null;
+      }
+
+      return data?.progress || null;
+    } catch (error) {
+      console.error("saveReadingProgress error:", error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     setShowBottomMenu(false);
     setShowSettings(false);
@@ -231,6 +315,7 @@ function Chapter() {
         console.error("init/load user error:", error);
         setIsVip(false);
         setVipExpiry(null);
+        setAutoUnlock(false);
       }
     };
 
@@ -328,6 +413,11 @@ function Chapter() {
   }, [novelId]);
 
   useEffect(() => {
+    if (!novelId) return;
+    fetchUnlockedChaptersForNovel(novelId);
+  }, [novelId]);
+
+  useEffect(() => {
     const fetchRecommendedNovel = async () => {
       if (!slug) return;
 
@@ -375,7 +465,116 @@ function Chapter() {
     return unlockedChapters.includes(targetChapterNumber);
   };
 
-  const isLockedChapter = !isChapterUnlocked(chapterNumber);
+  const isLockedChapter =
+    chaptersLoading || unlockedLoading ? true : !isChapterUnlocked(chapterNumber);
+
+  useEffect(() => {
+    if (!novelId || !chapter?.id || !chapter?.chapter_number) return;
+    if (chaptersLoading || unlockedLoading) return;
+    if (!autoUnlock) return;
+    if (isVip) return;
+    if (!isLockedChapter) return;
+    if (coins < unlockPrice) return;
+    if (autoUnlockLoading) return;
+
+    const chapterItem = chapters.find(
+      (c) => c.chapter_number === chapterNumber
+    );
+
+    if (!chapterItem) return;
+    if (chapterItem.is_free) return;
+
+    const runAutoUnlock = async () => {
+      try {
+        setAutoUnlockLoading(true);
+
+        const response = await fetch(`${API_BASE}/api/unlock-chapter`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            slug,
+            novelId,
+            chapterNumber,
+          }),
+        });
+
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok || !data?.success) {
+          console.error("Auto unlock failed:", data?.error || "Unknown error");
+          return;
+        }
+
+        setCoins(Number(data.coins || 0));
+        setUnlockedChapters((prev) =>
+          prev.includes(chapterNumber) ? prev : [...prev, chapterNumber]
+        );
+
+        if (data.vip_expiry) {
+          setVipExpiry(data.vip_expiry);
+          setIsVip(new Date(data.vip_expiry) > new Date());
+        }
+      } catch (error) {
+        console.error("runAutoUnlock error:", error);
+      } finally {
+        setAutoUnlockLoading(false);
+      }
+    };
+
+    runAutoUnlock();
+  }, [
+    autoUnlock,
+    autoUnlockLoading,
+    slug,
+    novelId,
+    chapter?.id,
+    chapter?.chapter_number,
+    chapterNumber,
+    chapters,
+    chaptersLoading,
+    unlockedLoading,
+    isLockedChapter,
+    isVip,
+    coins,
+    unlockPrice,
+  ]);
+
+  useEffect(() => {
+    if (!slug || !novelId || !chapter?.id || !chapter?.chapter_number) return;
+    if (chaptersLoading || unlockedLoading || autoUnlockLoading) return;
+    if (isLockedChapter) return;
+
+    const progressKey = `${slug}-${novelId}-${chapter.id}-${chapter.chapter_number}`;
+
+    if (lastSavedProgressKeyRef.current === progressKey) return;
+
+    const run = async () => {
+      const saved = await saveReadingProgress({
+        slug,
+        novelId,
+        chapterId: chapter.id,
+        chapterNumber: chapter.chapter_number,
+      });
+
+      if (saved || saved === null) {
+        lastSavedProgressKeyRef.current = progressKey;
+      }
+    };
+
+    run();
+  }, [
+    slug,
+    novelId,
+    chapter?.id,
+    chapter?.chapter_number,
+    chaptersLoading,
+    unlockedLoading,
+    autoUnlockLoading,
+    isLockedChapter,
+  ]);
 
   const selectedPackData = packs.find((pack) => pack.key === selectedPackKey);
 
@@ -531,7 +730,9 @@ function Chapter() {
       }
 
       setCoins(Number(data.coins || 0));
-      setUnlockedChapters(Array.isArray(data.unlocked) ? data.unlocked : []);
+      setUnlockedChapters((prev) =>
+        prev.includes(chapterNumber) ? prev : [...prev, chapterNumber]
+      );
       setVipExpiry(data.vip_expiry || vipExpiry);
 
       if (data.vip_expiry) {
@@ -553,7 +754,7 @@ function Chapter() {
     setShowSettings(false);
   };
 
-  if (chaptersLoading) {
+  if (chaptersLoading || unlockedLoading) {
     return (
       <div
         style={{ ...styles.page, background: theme.pageBg, color: theme.text }}
@@ -694,19 +895,31 @@ function Chapter() {
           {chapter.title}
         </h1>
 
-        {!isLockedChapter ? (
-          paragraphs.map((p, i) => (
+        {!isLockedChapter || autoUnlockLoading ? (
+          autoUnlockLoading && isLockedChapter ? (
             <p
-              key={i}
               style={{
                 ...styles.paragraph,
                 fontSize: `${fontSize}px`,
-                color: theme.text,
+                color: theme.subText,
               }}
             >
-              {p}
+              Unlocking chapter automatically...
             </p>
-          ))
+          ) : (
+            paragraphs.map((p, i) => (
+              <p
+                key={i}
+                style={{
+                  ...styles.paragraph,
+                  fontSize: `${fontSize}px`,
+                  color: theme.text,
+                }}
+              >
+                {p}
+              </p>
+            ))
+          )
         ) : (
           <>
             {paragraphs.slice(0, 2).map((p, i) => (

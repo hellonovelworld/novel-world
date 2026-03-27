@@ -3,6 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "./supabaseClient";
 import BottomNav from "./BottomNav";
 
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+
 function formatReaderCount(value) {
   const num = Number(value);
 
@@ -27,6 +30,9 @@ function Home() {
   const [activeTab, setActiveTab] = useState("Hot");
   const [searchTerm, setSearchTerm] = useState("");
 
+  const [readingProgress, setReadingProgress] = useState([]);
+  const [progressLoading, setProgressLoading] = useState(true);
+
   useEffect(() => {
     const fetchNovels = async () => {
       setLoading(true);
@@ -50,8 +56,51 @@ function Home() {
     fetchNovels();
   }, []);
 
+  useEffect(() => {
+    const fetchReadingProgress = async () => {
+      try {
+        setProgressLoading(true);
+
+        const response = await fetch(`${API_BASE}/api/reading-progress`, {
+          method: "GET",
+          credentials: "include",
+        });
+
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          console.error(
+            "Failed to fetch reading progress:",
+            data?.error || "Unknown error"
+          );
+          setReadingProgress([]);
+          return;
+        }
+
+        setReadingProgress(Array.isArray(data?.progress) ? data.progress : []);
+      } catch (error) {
+        console.error("fetchReadingProgress error:", error);
+        setReadingProgress([]);
+      } finally {
+        setProgressLoading(false);
+      }
+    };
+
+    fetchReadingProgress();
+  }, []);
+
   const handleNovelClick = (slug) => {
     navigate(`/novel/${slug}`);
+  };
+
+  const handleContinueReading = (progressItem) => {
+    const progressNovel = progressItem?.novels;
+    const slug = progressNovel?.slug;
+    const chapterNumber = Number(progressItem?.last_read_chapter_number || 1);
+
+    if (!slug) return;
+
+    navigate(`/novel/${slug}/chapter/${chapterNumber}`);
   };
 
   const normalizedNovels = useMemo(() => {
@@ -123,7 +172,19 @@ function Home() {
   const trendingNovels = filteredNovels.slice(0, 8);
   const recommendedNovels = filteredNovels.slice(0, 20);
   const featuredNovel = heroNovels[0] || null;
-  const continueReadingNovel = filteredNovels[1] || filteredNovels[0] || null;
+
+  const continueReadingItem = useMemo(() => {
+    if (!Array.isArray(readingProgress) || readingProgress.length === 0) {
+      return null;
+    }
+
+    return readingProgress.find((item) => item?.novels?.slug) || null;
+  }, [readingProgress]);
+
+  const continueReadingNovel = continueReadingItem?.novels || null;
+  const continueChapterNumber = Number(
+    continueReadingItem?.last_read_chapter_number || 1
+  );
 
   return (
     <div style={styles.page}>
@@ -253,10 +314,10 @@ function Home() {
                 </div>
               )}
 
-              {continueReadingNovel && (
+              {!progressLoading && continueReadingNovel && (
                 <div
                   style={styles.continueCard}
-                  onClick={() => handleNovelClick(continueReadingNovel.slug)}
+                  onClick={() => handleContinueReading(continueReadingItem)}
                 >
                   <img
                     src={continueReadingNovel.cover_url || "/cover.jpg"}
@@ -270,11 +331,16 @@ function Home() {
                       {continueReadingNovel.title}
                     </div>
                     <div style={styles.continueSub}>
-                      {continueReadingNovel.author || "Unknown Author"}
+                      Chapter {continueChapterNumber}
                     </div>
 
                     <div style={styles.progressTrack}>
-                      <div style={styles.progressFill}></div>
+                      <div
+                        style={{
+                          ...styles.progressFill,
+                          width: "100%",
+                        }}
+                      ></div>
                     </div>
                   </div>
 
@@ -919,6 +985,10 @@ const styles = {
     borderRadius: "18px",
     background: "linear-gradient(90deg, #f3f4f7 25%, #eceef3 50%, #f3f4f7 75%)",
     marginBottom: "14px",
+  },
+
+  bottomSpacer: {
+    height: "76px",
   },
 
   bottomSpace: {

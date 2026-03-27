@@ -9,7 +9,7 @@ import {
   ChevronRight,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import BottomNav from "./BottomNav";
 import { supabase } from "./supabaseClient";
 
@@ -25,6 +25,9 @@ function My() {
   const [authUser, setAuthUser] = useState(null);
   const [appUser, setAppUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const [readingProgress, setReadingProgress] = useState([]);
+  const [progressLoading, setProgressLoading] = useState(true);
 
   const fetchSessionUser = async () => {
     try {
@@ -53,6 +56,38 @@ function My() {
       setCoins(0);
       setAutoUnlock(false);
       return null;
+    }
+  };
+
+  const fetchReadingProgress = async () => {
+    try {
+      setProgressLoading(true);
+
+      const response = await fetch(`${API_BASE}/api/reading-progress`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        console.error(
+          "Failed to fetch reading progress:",
+          data?.error || "Unknown error"
+        );
+        setReadingProgress([]);
+        return [];
+      }
+
+      const progressRows = Array.isArray(data?.progress) ? data.progress : [];
+      setReadingProgress(progressRows);
+      return progressRows;
+    } catch (error) {
+      console.error("fetchReadingProgress error:", error);
+      setReadingProgress([]);
+      return [];
+    } finally {
+      setProgressLoading(false);
     }
   };
 
@@ -146,6 +181,8 @@ function My() {
         } else {
           await fetchSessionUser();
         }
+
+        await fetchReadingProgress();
       } finally {
         setLoading(false);
       }
@@ -170,10 +207,20 @@ function My() {
 
     setAuthUser(null);
 
-    // Keep session user from backend cookie if your backend supports guest session persistence.
     await fetchSessionUser();
+    await fetchReadingProgress();
 
     window.location.href = "/my";
+  };
+
+  const handleContinueReading = (progressItem) => {
+    const progressNovel = progressItem?.novels;
+    const slug = progressNovel?.slug;
+    const chapterNumber = Number(progressItem?.last_read_chapter_number || 1);
+
+    if (!slug) return;
+
+    navigate(`/novel/${slug}/chapter/${chapterNumber}`);
   };
 
   const user = {
@@ -181,6 +228,19 @@ function My() {
     id: appUser?.id?.slice(0, 6) || "----",
     badge: "Reader",
   };
+
+  const continueReadingItem = useMemo(() => {
+    if (!Array.isArray(readingProgress) || readingProgress.length === 0) {
+      return null;
+    }
+
+    return readingProgress.find((item) => item?.novels?.slug) || null;
+  }, [readingProgress]);
+
+  const continueReadingNovel = continueReadingItem?.novels || null;
+  const continueChapterNumber = Number(
+    continueReadingItem?.last_read_chapter_number || 1
+  );
 
   const showSoon = (label) => {
     setToast(`${label} coming soon`);
@@ -190,27 +250,27 @@ function My() {
     {
       icon: <History size={19} />,
       label: "Reading History",
-      onClick: () => showSoon("Reading History"),
+      onClick: () => navigate("/reading-history"),
     },
     {
       icon: <Wallet size={19} />,
       label: "Transaction Record",
-      onClick: () => showSoon("Transaction Record"),
+      onClick: () => navigate("/transaction-record"),
     },
     {
       icon: <Wallet size={19} />,
       label: "Coins Consumption Record",
-      onClick: () => showSoon("Coins Consumption Record"),
+      onClick: () => navigate("/coins-consumption-record"),
     },
     {
       icon: <BookOpen size={19} />,
       label: "Unlocked Series",
-      onClick: () => navigate("/bookshelf"),
+      onClick: () => navigate("/unlocked-series"),
     },
     {
       icon: <MessageSquare size={19} />,
       label: "Feedback Center",
-      onClick: () => showSoon("Feedback Center"),
+      onClick: () => navigate("/feedback"),
     },
     {
       icon: <Settings size={19} />,
@@ -220,7 +280,7 @@ function My() {
     {
       icon: <Settings size={19} />,
       label: "Settings",
-      onClick: () => showSoon("Settings"),
+      onClick: () => navigate("/settings"),
     },
   ];
 
@@ -306,6 +366,44 @@ function My() {
             </button>
           </div>
         </div>
+
+        {!progressLoading && continueReadingNovel && (
+          <>
+            <div style={styles.sectionTitle}>Continue Reading</div>
+
+            <div
+              style={styles.continueCard}
+              onClick={() => handleContinueReading(continueReadingItem)}
+            >
+              <img
+                src={continueReadingNovel.cover_url || "/cover.jpg"}
+                alt={continueReadingNovel.title}
+                style={styles.continueCover}
+              />
+
+              <div style={styles.continueContent}>
+                <div style={styles.continueLabel}>Continue Reading</div>
+                <div style={styles.continueTitle}>
+                  {continueReadingNovel.title}
+                </div>
+                <div style={styles.continueSub}>
+                  Chapter {continueChapterNumber}
+                </div>
+
+                <div style={styles.progressTrack}>
+                  <div
+                    style={{
+                      ...styles.progressFill,
+                      width: "100%",
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              <div style={styles.continueArrow}>›</div>
+            </div>
+          </>
+        )}
 
         <div style={styles.sectionTitle}>My Activity</div>
 
@@ -581,6 +679,76 @@ const styles = {
     color: "#111827",
     marginBottom: "12px",
     letterSpacing: "-0.2px",
+  },
+
+  continueCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    padding: "12px",
+    borderRadius: "18px",
+    background: "#ffffff",
+    border: "1px solid #edf0f6",
+    marginBottom: "18px",
+    cursor: "pointer",
+    boxShadow: "0 12px 30px rgba(17,24,39,0.05)",
+  },
+
+  continueCover: {
+    width: "56px",
+    height: "78px",
+    borderRadius: "10px",
+    objectFit: "cover",
+    flexShrink: 0,
+  },
+
+  continueContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  continueLabel: {
+    fontSize: "11px",
+    fontWeight: "800",
+    color: "#ff6b3d",
+    marginBottom: "4px",
+  },
+
+  continueTitle: {
+    fontSize: "14px",
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: "4px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  continueSub: {
+    fontSize: "12px",
+    color: "#7c8496",
+    marginBottom: "8px",
+  },
+
+  progressTrack: {
+    width: "100%",
+    height: "6px",
+    borderRadius: "999px",
+    background: "#e7ebf3",
+    overflow: "hidden",
+  },
+
+  progressFill: {
+    width: "42%",
+    height: "100%",
+    borderRadius: "999px",
+    background: "linear-gradient(90deg, #ff7a59 0%, #ffb36b 100%)",
+  },
+
+  continueArrow: {
+    fontSize: "24px",
+    color: "#9aa1b3",
+    lineHeight: 1,
   },
 
   menuCard: {
